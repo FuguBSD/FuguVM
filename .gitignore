@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+local/
+
+# Exploratory testing
+explore/
+
+# Man pages (compiled)
+*.cat1
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Agent files
+SCRATCHPAD*.md
+.claude/worktrees/
+
+# External projects
+external/
+
+# VM state and images
+.fuguvm/
+.cache/
+*.qcow2
+*.img
+*.iso
+*.pid
+*.log

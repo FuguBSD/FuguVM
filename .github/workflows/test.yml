@@ -1,0 +1,58 @@
+name: Test
+
+# Use explicit includes, never excludes. Only what `make test` loads
+# may start a run. Note that the Build workflow releases from a
+# successful run of this one. Thus a path that this list omits is also
+# a change that never ships.
+on:
+  push:
+    branches: [main]
+    paths:
+      # The files that the suite loads
+      - "bin/*"
+      - "lib/**.pm"
+      - "lib/**.pod"
+      - "t/**.t"
+      # The dist test stages the share tree
+      - "share/**"
+      # The suite runs scripts as subprocesses: deps and dist against
+      # fixtures, and conventions.t over the directory as a whole.
+      # Thus the workflow must see all of scripts/. A glob is
+      # necessary because the files in scripts/ have no extension.
+      - "scripts/*"
+      # The toolchain and the dependency set that the job installs
+      - "Makefile"
+      - "cpanfile"
+      - "deps/*.txt"
+      - ".toolingrc"
+      - ".github/workflows/test.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "bin/*"
+      - "lib/**.pm"
+      - "lib/**.pod"
+      - "t/**.t"
+      - "share/**"
+      - "scripts/*"
+      - "Makefile"
+      - "cpanfile"
+      - "deps/*.txt"
+      - ".toolingrc"
+      - ".github/workflows/test.yml"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Perl
+        uses: FuguBSD/Tooling/perl/actions/setup-perl@main
+        with:
+          dependencies: test
+
+      - name: Run tests
+        run: make test

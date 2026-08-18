@@ -1,0 +1,13 @@
+# Per-repo configuration for the shared FuguBSD tooling. The synced
+# scripts read their identity keys here. See FuguBSD/Tooling.
+dist.name        App-FuguVM
+dist.module      App::FuguVM
+dist.abstract    install and manage OpenBSD virtual machines under QEMU
+dist.exe         bin/fuguvm
+dist.testdir     t/fuguvm
+dist.share-extra scripts/ftp
+dist.prereq      Net::SSH2
+dist.prereq      HTTP::Daemon
+dist.prereq      HTTP::Message
+dist.prereq      LWP::UserAgent
+dist.prereq      URI

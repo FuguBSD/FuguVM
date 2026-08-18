@@ -1,0 +1,14 @@
+runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
+runtime pkg qemu-system-arm
+runtime pkg qemu-efi-aarch64
+runtime pkg expect
+runtime pkg telnet
+runtime pkg libssh2-1-dev
+runtime cpan Net::SSH2
+runtime cpan HTTP::Daemon
+runtime cpan HTTP::Message
+runtime cpan LWP::UserAgent
+runtime cpan URI
+
+test cpan Perl::Critic
+test cpan Perl::Tidy
