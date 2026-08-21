@@ -1,4 +1,4 @@
-# 008 — A scriptable status, a bind address, automatic ports, and two guards
+# 002 — A scriptable status, a bind address, automatic ports, and two guards
 
 ## Status
 
@@ -89,9 +89,9 @@ Out of scope:
 
 - A JSON form of `status`. No consumer asks for one, and a `key: value` line
   needs no parser in `sh`.
-- The `arch` key of `status`. Plan 007 owns the `arch` directive, and it adds
+- The `arch` key of `status`. Plan 001 owns the `arch` directive, and it adds
   the key.
-- The accelerator rule itself. Plan 007 owns it. This plan reports the choice.
+- The accelerator rule itself. Plan 001 owns it. This plan reports the choice.
 - A port directive for the range bounds. The constants are the one home of the
   range, and no consumer asks for a second range.
 - An IPv6 bind address. QEMU needs bracket syntax in a hostfwd rule, and no
@@ -102,7 +102,7 @@ Out of scope:
   cache hold that concern, and no consumer reports a collision there.
 - A shared proxy for a fleet. Each guest starts its own proxy child today, and
   each child takes its own free port.
-- The `console` verb that attaches to the serial console. Plan 009 owns it.
+- The `console` verb that attaches to the serial console. Plan 003 owns it.
 
 ## Constraints that shape the design
 
@@ -344,8 +344,8 @@ the QEMU log. The tool must not hang and must not retry silently.
 | `bind_address`         | A new method. Return the setting of the enclosing files, or `DEFAULT_BIND_ADDRESS`.                                                                       |
 | `qemu_version`         | A new method. Return the setting of the enclosing files, or `undef`.                                                                                      |
 
-`load_vm` reports an invalid value through the `error` accessor that plan 007
-adds. `App::FuguVM::CLI` reads it through the `load_exit` field of plan 007, so
+`load_vm` reports an invalid value through the `error` accessor that plan 001
+adds. `App::FuguVM::CLI` reads it through the `load_exit` field of plan 001, so
 a bad value gives 3 and an undeclared guest still gives 4. This plan adds both
 if it merges first.
 
@@ -370,10 +370,10 @@ if it merges first.
 | `_wait_console_ready`               | Connect to `connect_address`.                                                                                                                                |
 | `wait_ssh`                          | Connect to `connect_address`.                                                                                                                                |
 
-`_check_qemu_version` reads the binary that `_qemu_path` of plan 007 resolves.
-With no plan 007 in the tree it reads `QEMU_BINARY`.
+`_check_qemu_version` reads the binary that `_qemu_path` of plan 001 resolves.
+With no plan 001 in the tree it reads `QEMU_BINARY`.
 
-`accel` and `_accel_args` have one home for the choice. Plan 007 moves that
+`accel` and `_accel_args` have one home for the choice. Plan 001 moves that
 choice into `App::FuguVM::Arch->accelerator`, and `accel` calls it. The recorded
 value wins for a running guest, because a guest that started under `--emulate`
 runs TCG whatever the host can do now. `_resolve_ports` records the selected

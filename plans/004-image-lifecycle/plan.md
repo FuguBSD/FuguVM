@@ -1,11 +1,11 @@
-# 010 — The image lifecycle: an autoinstall mode, an image export, and an imported base disk
+# 004 — The image lifecycle: an autoinstall mode, an image export, and an imported base disk
 
 ## Status
 
 Proposed.
 
-This plan depends on plan 007,
-[`plans/007-guest-architecture/plan.md`](../007-guest-architecture/plan.md). A
+This plan depends on plan 001,
+[`plans/001-guest-architecture/plan.md`](../001-guest-architecture/plan.md). A
 Scaleway import needs an amd64 guest that boots under UEFI, with the loader at
 `\EFI\Boot\bootx64.efi`. FuguTTX `IAC-HOSTS` states that requirement, and it
 states the reason: "Scaleway rejects legacy BIOS". The tool cannot build such a
@@ -25,11 +25,11 @@ one of them is an aarch64 file: five absolute paths from
 	    glob('/opt/homebrew/Cellar/qemu/*/share/qemu/edk2-aarch64-code.fd');
 ```
 
-Plan 007 adds the `arch` directive, the amd64 machine, the x86 EFI firmware list
+Plan 001 adds the `arch` directive, the amd64 machine, the x86 EFI firmware list
 and the accelerator rule. This plan builds on that work. An arm64 export stays
 useful for a FuguBSD developer, but no Scaleway host can boot it.
 
-Plan 008 is not a dependency. Two of its changes help this work, and this plan
+Plan 002 is not a dependency. Two of its changes help this work, and this plan
 names each one where it applies. The two changes are the lock around the first
 population of one cache entry, and the `bind_address` directive.
 
@@ -135,10 +135,10 @@ Out of scope:
 - An upload of the image to object storage. FuguTTX `IAC-IMAGE` states that
   `make image-publish` does that with the `scw` CLI.
 - A signature or a manifest beside the image. Fugu plan 004 adds
-  `Fugu::Signify`, and FuguVM plan 011 consumes it for the mirror. No consumer
+  `Fugu::Signify`, and FuguVM plan 005 consumes it for the mirror. No consumer
   asks for a signed image export today.
 - An `--arch` option on the export. A disk belongs to one architecture for its
-  whole life, and plan 007 states that rule.
+  whole life, and plan 001 states that rule.
 - A conversion to VMDK or to VHD. Scaleway takes a qcow2 for the Instance route
   and a raw image for the Elastic Metal route, and `IAC-HOSTS` names both.
 
@@ -221,7 +221,7 @@ Out of scope:
 
 - **The record change rotates every key one time.** The record gains an
   `install_mode` input, so each existing key changes once, and each guest
-  installs once more. That cost is correct and small. Plan 007 already rotates
+  installs once more. That cost is correct and small. Plan 001 already rotates
   the arm64 key in the same release, because it changes `install.exp`.
   `share/fuguvm/cache-generation` must not change: the record change rotates the
   key by itself.
@@ -429,7 +429,7 @@ vm "scenario-1" {
 | Several guests                    | Every guest of the project derives the same key, so one entry serves the whole fleet.                         |
 
 The publication costs one `qemu-img convert` of the whole image, and it happens
-one time for each host. Plan 008 adds a lock around the first population of one
+one time for each host. Plan 002 adds a lock around the first population of one
 entry. With that lock a parallel fleet publishes one time, and each other guest
 waits and then overlays.
 
@@ -475,7 +475,7 @@ sorted key order:
 | `path`   | The absolute path of the written file          |
 | `source` | The absolute path of the source image          |
 
-The report uses the printer of `fuguvm status`. Plan 008 moves that printer to
+The report uses the printer of `fuguvm status`. Plan 002 moves that printer to
 standard output, and it holds the stable-key rule. Until then the report goes
 through the logger, like every other report of the tool.
 
@@ -513,7 +513,7 @@ owner.
 
 | Requirement                                                        | Who meets it                   | How                                                                                                                                                                                                                                                |
 | ------------------------------------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UEFI boot, with a loader at `\EFI\Boot\bootx64.efi`                | The tool and the response file | Plan 007 gives the amd64 machine and the x86 EFI firmware. The response file must answer the disk-layout question with the whole-disk GPT choice. The installer then makes the EFI system partition, and installboot(8) writes the loader into it. |
+| UEFI boot, with a loader at `\EFI\Boot\bootx64.efi`                | The tool and the response file | Plan 001 gives the amd64 machine and the x86 EFI firmware. The response file must answer the disk-layout question with the whole-disk GPT choice. The installer then makes the EFI system partition, and installboot(8) writes the loader into it. |
 | A full disk image, not an ISO and not a root file system           | The tool                       | `fuguvm image export` converts the whole base disk. The image holds the partition table, the EFI system partition and every OpenBSD partition. `--format=raw` writes the form that the Elastic Metal route needs.                                  |
 | A root device set by DUID                                          | The OpenBSD installer          | The installer writes DUID entries into `/etc/fstab`. The tool must not change them, and the response file must not answer over them. One acceptance step reads `/etc/fstab` in the guest.                                                          |
 | An `rc.local` that reads `http://169.254.42.42/conf` with `ftp(1)` | The response file              | The response file must name a `siteXX.tgz` set that carries the file, or an `install.site` script that writes it. The tool copies no file into the guest, and the exported base disk holds only what the installer wrote.                          |
@@ -528,9 +528,9 @@ fallback.
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `load_vm($name)`        | Resolve and validate `autoinstall`, `base_disk` and `root_password_file`. Derive `install_mode`. Return `undef` and record the reason on any invalid value or contradiction. |
 | `_resolve_path($value)` | A new private method. Expand a tilde, then make a relative path absolute against the project root.                                                                           |
-| `error`                 | The accessor of plan 007. This plan reports every new reason through it.                                                                                                     |
+| `error`                 | The accessor of plan 001. This plan reports every new reason through it.                                                                                                     |
 
-`App::FuguVM::CLI` reads the reason through the `load_exit` field of plan 007,
+`App::FuguVM::CLI` reads the reason through the `load_exit` field of plan 001,
 so an invalid directive gives 3 and an undeclared guest still gives 4.
 
 The `install_mode` value of the returned hash is `expect`, `autoinstall` or
@@ -850,13 +850,13 @@ PID file.
    set. The tool serves the response file and no other file. Whether one
    response file can name a second sets location needs a transcript. The
    fallback is a provision after the install. `fuguvm put` and `fuguvm ssh` of
-   plan 009 write the file, and the export then needs the working disk. That
+   plan 003 write the file, and the export then needs the working disk. That
    fallback would add `fuguvm image export --from=disk`, which flattens the
    working disk onto the base. This plan does not add that option, and no
    consumer asks for it yet.
 4. **The whole-disk GPT answer.** The response file must select a GPT layout, so
    the installer makes the EFI system partition. The exact question text and the
-   exact answer word must come from a transcript. Plan 007 carries the same open
+   exact answer word must come from a transcript. Plan 001 carries the same open
    question for its expect script, and one transcript can close both.
 5. **The password file of a published image.** The plan gives the consuming host
    the password through `root_password_file`. A stack that prefers no shared
