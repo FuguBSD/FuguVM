@@ -1,12 +1,12 @@
-# 003 — Guest file transfer, an argument vector over ssh, and a console that attaches
+# 009 — Guest file transfer, an argument vector over ssh, and a console that attaches
 
 ## Status
 
 Proposed.
 
-This plan depends on plan 002,
-[`plans/002-scriptable-and-parallel-guests/plan.md`](../002-scriptable-and-parallel-guests/plan.md).
-Plan 002 adds the `bind_address` directive, whose default is `127.0.0.1`, and
+This plan depends on plan 008,
+[`plans/008-scriptable-and-parallel-guests/plan.md`](../008-scriptable-and-parallel-guests/plan.md).
+Plan 008 adds the `bind_address` directive, whose default is `127.0.0.1`, and
 the method `App::FuguVM::Guest->connect_address`. Each verb of this plan
 connects to that address.
 
@@ -50,7 +50,7 @@ publish order, and the exit codes. Fugu plan 003 assigns the quoting here in one
 sentence of its "Out of scope" section:
 
 > A list form of `run_command`. The method keeps its string argument. FuguVM
-> plan 003 owns the quoting of an argument list.
+> plan 009 owns the quoting of an argument list.
 
 The console half belongs to `App::FuguVM::Console`, which already drives the
 serial console with expect(1) scripts. The attach verb is the same console, with
@@ -95,7 +95,7 @@ that exists.
 
 FuguTTX must not call `Fugu::SSH`. Decision D7 states that the client loads only
 `Fugu::REPL` from the distribution. FuguTTX reaches this work as a command, like
-qemu and the `scw` CLI, so no decision blocks it. FuguTTX plan 001 proposes the
+qemu and the `scw` CLI, so no decision blocks it. FuguTTX plan 012 proposes the
 D7 change, and it waits for a human.
 
 The architecture check of IAC-METAL-1 needs an amd64 guest, which FuguVM plan
@@ -287,7 +287,7 @@ reason for an address and not a name:
 	# resolves to ::1 first.
 ```
 
-`cmd_console` prints `localhost` today. Plan 002 adds
+`cmd_console` prints `localhost` today. Plan 008 adds
 `App::FuguVM::Guest->connect_address`, and each verb of this plan must take the
 address from that method.
 
@@ -655,7 +655,7 @@ them.
   `Protocol::` import.
 - `mandoc -Tlint man/fuguvm/fuguvm.1` reports nothing.
 - The `.pod` sidecar of each changed module documents every public sub.
-- FuguVM passes against a build of the Fugu branch of plan 003:
+- FuguVM passes against a build of the Fugu branch of Fugu plan 003:
   `cpanm --local-lib=local ../Fugu/build/Fugu-*.tar.gz`, then `make check`.
 - One recorded live run against a guest proves the transfer. The run holds these
   steps, in this order:
@@ -698,7 +698,7 @@ them.
    needs the host tar and the guest tar to agree on one format, and this plan
    cannot prove that agreement. A measured run of TEST-INTEROP-7 must decide it.
 4. **A bare `fuguvm ssh uname -m` exits 2.** The option parser reads `-m` as an
-   option. The working form is `fuguvm ssh -- uname -m`. FuguVM plan 001 uses
+   option. The working form is `fuguvm ssh -- uname -m`. FuguVM plan 007 uses
    the quoted form `fuguvm ssh "uname -m"`, which works today.
 5. **`cmd_expect` still uses `localhost`.** The attach verb uses the connect
    address of the guest, for the reason that `cmd_ssh` records. A dual-stack

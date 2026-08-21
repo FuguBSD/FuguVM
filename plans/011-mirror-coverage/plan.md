@@ -1,4 +1,4 @@
-# 005 — Mirror coverage: the ports tree, the distfiles, and a verified download
+# 011 — Mirror coverage: the ports tree, the distfiles, and a verified download
 
 ## Status
 
@@ -24,10 +24,10 @@ answers it under "The signify keys".
 
 Fugu plan 004 also states one test limit. This plan must honor it: "One path the
 unit test cannot cover: a real OpenBSD `SHA256` file and its release key. FuguVM
-proves that path against a live mirror, in the test of its plan 005." The
+proves that path against a live mirror, in the test of its plan 011." The
 acceptance list below holds that proof.
 
-Plan 001 is not a dependency, but the two plans touch the same lines.
+Plan 007 is not a dependency, but the two plans touch the same lines.
 `App::FuguVM::Miniroot` holds both mirror facts today:
 
 ```perl
@@ -37,16 +37,16 @@ use constant {
 };
 ```
 
-Plan 001 deletes `ARCH` and gives `Miniroot->new` an architecture argument. This
+Plan 007 deletes `ARCH` and gives `Miniroot->new` an architecture argument. This
 plan moves both constants into a new mirror module, which takes the version and
 the architecture as arguments. Whichever plan lands second keeps the mirror
 module as the one home of the host, the version and the architecture.
 
-Plan 002 is not a dependency. Its `fuguvm status` gains one key here,
+Plan 008 is not a dependency. Its `fuguvm status` gains one key here,
 `proxy_url`. The key set of `status` must stay stable, so the two plans must
 agree on the shape of that report.
 
-Plan 003 is not a dependency. Its `fuguvm put` carries a distfile that no
+Plan 009 is not a dependency. Its `fuguvm put` carries a distfile that no
 OpenBSD mirror serves into a guest, and this plan names that route where it
 applies.
 
@@ -633,7 +633,7 @@ The tool writes no file in the guest for this. Two lines of guest configuration
 make the cache work, and the consumer owns both:
 
 1. `http_proxy` must name the `proxy_url` value of `fuguvm status`. ftp(1) in
-   the guest reads that variable. Plan 002 adds the one-key form,
+   the guest reads that variable. Plan 008 adds the one-key form,
    `fuguvm status proxy_url`, which a `make` target can read with no text
    filter.
 2. The ports tree must fetch each distfile from the OpenBSD distfile mirror,

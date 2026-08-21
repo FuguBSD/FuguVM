@@ -1,4 +1,4 @@
-# 001 — A guest architecture directive for amd64 and arm64
+# 007 — A guest architecture directive for amd64 and arm64
 
 ## Status
 
@@ -59,7 +59,7 @@ module from it.
 
 `fuguvm ssh uname -m` exits 2 today, because the option parser of `Fugu::CLI`
 reads `-m` as an option. The quoted form `fuguvm ssh "uname -m"` works, so this
-plan uses it. FuguVM plan 003 adds the argument-vector form
+plan uses it. FuguVM plan 009 adds the argument-vector form
 `fuguvm ssh -- uname -m` as the alternative, and FuguTTX `IAC-METAL-1` must use
 a working form.
 
@@ -92,12 +92,12 @@ Out of scope:
 - A third architecture. Neither `i386` nor `riscv64` has a consumer today.
 - A cross-architecture snapshot or a cross-architecture disk import. A disk
   belongs to one architecture for its whole life.
-- The `accel` field of a scriptable `status`. Plan 002 owns the machine-readable
+- The `accel` field of a scriptable `status`. Plan 008 owns the machine-readable
   `status` output, and `IAC-METAL-1` needs it. This plan makes the accelerator
-  correct, and plan 002 reports it.
-- An `autoinstall(8)` install mode and an image export. Plan 004 owns both, and
-  plan 004 depends on this plan.
-- A qemu version gate. Plan 002 owns it.
+  correct, and plan 008 reports it.
+- An `autoinstall(8)` install mode and an image export. Plan 010 owns both, and
+  plan 010 depends on this plan.
+- A qemu version gate. Plan 008 owns it.
 
 ## Constraints that shape the design
 
@@ -517,7 +517,7 @@ exits 4.
    the serial port, so the `boot>` prompt arrives at the expect script. One
    transcript must confirm it. When it does not arrive, the console route needs
    another answer, and `autoinstall(8)` is that answer. An `autoinstall(8)`
-   response file needs no console at all. Plan 004 owns that install mode, and
+   response file needs no console at all. Plan 010 owns that install mode, and
    this plan would then depend on it.
 2. **The whole-disk answer of the amd64 installer.** The plan states that the
    amd64 installer offers a whole-disk MBR and a whole-disk GPT, and that the
