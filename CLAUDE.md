@@ -146,13 +146,13 @@ Every fact lives in exactly one place; everything else points to it:
 
 `deps/{OpenBSD,Linux,Darwin}.txt` are authoritative, installed by `make deps`
 via `scripts/deps`; one line each, `<environment> <type> <name>`, where
-`<environment>` is `runtime`, `test`, or `develop` and `<type>` is `pkg`,
+`<environment>` is `runtime`, `test`, or `develop`. The `<type>` field is `pkg`,
 `dist`, `cpan`, or `bin`. A `dist` line names a release-asset URL, and
 `scripts/deps` installs the tarball with cpanm — this is how Fugu arrives. A
-`bin` line names a command and a download URL, and `scripts/deps` installs the
-file into `~/.local/bin`; the URL placeholders `{os}` and `{arch}` become the
-platform words. A `bin` line that names a `.tar.gz`, a `.tgz` or a `.zip` URL
-takes a third field: the file path in the archive.
+`bin` line names a command and a download URL. `scripts/deps` installs that file
+into `~/.local/bin`. The URL placeholders `{os}` and `{arch}` become the
+platform words. An archive URL ends in `.tar.gz`, `.tgz` or `.zip`. A `bin` line
+with an archive URL must name a third field: the file path in the archive.
 
 `scripts/deps` is the one exception to `use v5.36`: it runs before anything is
 installed, and macOS still ships perl 5.34. It uses `use v5.34` plus explicit
