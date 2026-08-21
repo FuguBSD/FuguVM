@@ -22,10 +22,10 @@ Fugu plan 004 leaves one question to this plan. Its open question 6 asks who
 holds the OpenBSD release keys on a Linux host and on a Darwin host. This plan
 answers it under "The signify keys".
 
-Fugu plan 004 also states one test limit, and this plan must honour it: "One
-path the unit test cannot cover: a real OpenBSD `SHA256` file and its release
-key. FuguVM proves that path against a live mirror, in the test of its plan
-005." The acceptance list below holds that proof.
+Fugu plan 004 also states one test limit. This plan must honor it: "One path the
+unit test cannot cover: a real OpenBSD `SHA256` file and its release key. FuguVM
+proves that path against a live mirror, in the test of its plan 005." The
+acceptance list below holds that proof.
 
 Plan 001 is not a dependency, but the two plans touch the same lines.
 `App::FuguVM::Miniroot` holds both mirror facts today:
@@ -81,10 +81,13 @@ says so in its CAVEATS:
 > version; a caller whose URLs are not needs a policy that this module does not
 > have.
 
-This plan is that policy. Each piece of it is true of an OpenBSD mirror and of
-nothing else: which URL is worth keeping, which key signs which file, what
-bounds a tree that no version scopes, and which installer prompt the tool must
-not answer for the operator.
+This plan is that policy. Each piece of the policy is true of an OpenBSD mirror
+and of nothing else:
+
+- which URL is worth keeping;
+- which key signs which file;
+- what bounds a tree that no version scopes;
+- which installer prompt the tool must not answer for the operator.
 
 Fugu gains nothing here. The distfile trust chain rests on the ports tree of one
 operating system, and the set names rest on one installer.
@@ -120,7 +123,7 @@ qemu and the `scw` CLI, and no consumer loads a module from it. FuguTTX D7
 therefore permits every row.
 
 FuguPass needs no row. Its `QA-HARNESS` unit runs each leg of its suite in an
-OpenBSD guest, under a rule that the edit set adds, and it builds no port.
+OpenBSD guest, under a rule that the edit set adds. It builds no port.
 
 ## Scope
 
@@ -191,16 +194,17 @@ belongs to. That is what makes prune safe."
 
 **The two gaps are gaps of path shape.** A ports tree sits at
 `/pub/OpenBSD/<version>/ports.tar.gz`. The path holds a version, and it holds no
-architecture component, so the first pattern cannot match it: that pattern needs
+architecture component, so the first pattern cannot match it. That pattern needs
 a `\w+` between the version and the file name. A distfile sits under
 `/pub/OpenBSD/distfiles/`, and that path holds no version at all.
 
 The manifest of the source tarballs has the same shape problem. It sits at
 `/pub/OpenBSD/<version>/SHA256`, with its signature beside it. The fourth
-pattern needs an architecture component, so the cache admits the manifest of the
-architecture directory and refuses the manifest of the version directory.
+pattern needs an architecture component. The cache thus admits the manifest of
+the architecture directory, and it refuses the manifest of the version
+directory.
 
-**`prune` recognises a version directory and nothing else.** The method reads
+**`prune` recognizes a version directory and nothing else.** The method reads
 each version root and keeps only what the caller named:
 
 ```perl
@@ -229,15 +233,15 @@ directory, and `prune` removes that whole directory with `File::Path`. A version
 bump therefore takes the source tarballs with it.
 
 The distfile tree needs a bound of another kind. `distfiles` is not a version
-name, so the `grep` above refuses it and `prune` leaves the tree. That behaviour
+name, so the `grep` above refuses it and `prune` leaves the tree. That behavior
 is correct, and it must stay. It also means that no version bump ever frees the
 tree. A distfile belongs to a port and not to a release, and a port keeps its
-distfile across releases, so a version prune would be the wrong rule even if the
-path allowed it.
+distfile across releases. A version prune would therefore be the wrong rule,
+even if the path allowed it.
 
 **A cap is the bound that fits.** The operator sets a size, and the cache holds
 the distfile tree under it. Eviction removes the oldest file first, by
-modification time. The plan does not use the access time: a host can mount its
+modification time. The plan does not use the access time. A host can mount its
 home directory with `noatime`, and a wrong order then evicts a file that a build
 reads every day. The modification time is the store time of the file, because
 `store` writes each file one time.
@@ -254,10 +258,10 @@ reads every day. The modification time is the store time of the file, because
 
 The installer asks that question when it cannot verify the sets. The script
 answers yes, so the guest installs a file set that nothing verified. The
-installer of a numbered release carries the release key in `bsd.rd`, and the
-proxy caches `SHA256.sig` beside each set already, so the installer can verify
-by itself. The prompt is therefore a report of a broken mirror, and the tool
-must not hide it.
+installer of a numbered release carries the release key in `bsd.rd`. The proxy
+caches `SHA256.sig` beside each set already, so the installer can verify by
+itself. The prompt is therefore a report of a broken mirror, and the tool must
+not hide it.
 
 **The host must verify the miniroot, because the guest cannot.** The miniroot is
 the boot medium, so no code in the guest inspects it before it runs.
@@ -286,9 +290,11 @@ and every later run boots it.
 
 The tool verifies the first two rows. The last three rows verify themselves in
 the guest, so the tool must not claim them. The distfile row is the reason that
-an unsigned distfile cache is still safe: the host verified the ports tree, the
-ports tree holds each `distinfo`, and the guest refuses a distfile that does not
-match.
+an unsigned distfile cache is still safe:
+
+- The host verified the ports tree.
+- The ports tree holds each `distinfo`.
+- The guest refuses a distfile that does not match.
 
 **The scheme does not enter the cache path.** `Fugu::Proxy::Cache->cache_path`
 maps a URL to `<dir>/proxy/<host>/<path>`, and it drops the scheme. The host can
@@ -345,10 +351,10 @@ The list gains three patterns:
 ```
 
 The first names the four source tarballs. The plan names them, and it uses no
-wildcard, because a wildcard at the version level would admit any file that a
-mirror puts there. The second admits the manifest of the version directory,
-which signs those four files. The existing manifest pattern stays, because it
-admits the manifest of the architecture directory.
+wildcard. A wildcard at the version level would admit any file that a mirror
+puts there. The second admits the manifest of the version directory, which signs
+those four files. The existing manifest pattern stays, because it admits the
+manifest of the architecture directory.
 
 The third admits a distfile. It requires a file name at the end, so a directory
 listing with a trailing solidus stays outside the cache. It filters no
@@ -357,7 +363,7 @@ extension, because a distfile carries every extension and sometimes none.
 The distfile pattern is conditional. `_is_openbsd_content` takes the size cap as
 a second parameter, and it admits a distfile URL only when the cap is above
 zero. A cache that grows with no bound in a home directory is the failure that
-this plan must not create, so the default answer is no.
+this plan must not create. The default answer is therefore no.
 
 ### The `distfile_cache` directive
 
@@ -429,8 +435,8 @@ release, and must say so in the commit message. The commit that adds a key is
 the commit that raises `DEFAULT_VERSION`.
 
 The key list of `Fugu::Signify` holds one key here. The release directory of a
-numbered release carries one signature, under the base key of that release, so a
-second key would accept a file that the version does not own.
+numbered release carries one signature, under the base key of that release. A
+second key would therefore accept a file that the version does not own.
 
 ### `App::FuguVM::Mirror`, a new module
 
@@ -512,8 +518,8 @@ concern. The download and the verification are mirror work, so they move.
 The size check of the old `download` goes away with it. A verified digest proves
 the size too, and a second check of one invariant belongs nowhere.
 
-`t/scripts/symbols.t` fails on a sub that no module and no test names, so the
-test of `download` and the test of `_ftp_script` go with the subs.
+`t/scripts/symbols.t` fails on a sub that no module and no test names. The test
+of `download` and the test of `_ftp_script` therefore go with the subs.
 
 ### `App::FuguVM::Config`
 
@@ -538,7 +544,7 @@ fuguvm mirror verify
 
 `fetch` downloads one file of the release, verifies it, and stores it in the
 proxy cache. It writes the cached path to standard output, so a script can read
-it. The scope comes from the manifests: the tool uses the `release` scope when
+it. The scope comes from the manifests. The tool uses the `release` scope when
 the manifest of the architecture directory names the file, and the `source`
 scope otherwise. Both manifests are authoritative lists, so the tool guesses
 nothing.
@@ -570,8 +576,8 @@ sizes, so the line matches every other size in the report.
 
 `_proxy_list` must exclude the distfile tree from the per-version grouping. The
 method groups a URL by the version in its path today, and it counts a URL with
-no version under `-`. A distfile URL holds no version, so every distfile would
-land in that bucket and hide the one URL class that the bucket exists for.
+no version under `-`. A distfile URL holds no version. Every distfile would land
+in that bucket, and it would hide the one URL class of the bucket.
 
 `cache clear` needs no change. `Fugu::Proxy::Cache->clear` removes the whole
 mirrored tree, so it takes the distfile tree with it.
@@ -658,7 +664,7 @@ code of its own.
 The change adds no CPAN module, so the `cpanfile` needs no line.
 `App::FuguVM::Mirror` loads `Fugu::File`, `Fugu::Log`, `Fugu::Process` and
 `Fugu::Signify`, and each one needs core Perl only. `t/fuguvm/boundary.t` proves
-the rule for every module under `lib/App`: `App::FuguVM` uses `Fugu::` and core
+the rule for every module under `lib/App`. `App::FuguVM` uses `Fugu::` and core
 Perl, it never uses `Protocol::`, and it never uses another `App::` namespace.
 
 The change adds one external command, signify(1). OpenBSD base holds it, so
@@ -678,8 +684,8 @@ The tier is `runtime` and not `test`, because `fuguvm up` verifies a download.
 Darwin `pkg` line with `brew install`.
 
 The Fugu release that this plan needs must carry `Fugu::Signify`. The `dist`
-line of each manifest fetches `releases/latest/download/Fugu.tar.gz`, so the
-order of the two repositories is fixed: Fugu releases first, and FuguVM lands
+line of each manifest fetches `releases/latest/download/Fugu.tar.gz`. The order
+of the two repositories is thus fixed. Fugu releases first, and FuguVM lands
 after it.
 
 ## Files
@@ -724,18 +730,18 @@ The seven edits of `man/fuguvm/fuguvm.1`:
 2. `DESCRIPTION`: extend the `cache` entry. State that `list` reports the
    distfile tree, and that `clear --stale` keeps it under the cap.
 3. A new `MIRROR CACHE` section, after `IMAGE CACHE`. State what the cache
-   admits, how the version prune bounds the release trees, how the cap bounds
-   the distfile tree, and which key verifies which file. Hold the trust chain
-   table of this plan.
+   admits, and how the version prune bounds the release trees. State how the cap
+   bounds the distfile tree, and which key verifies which file. Hold the trust
+   chain table of this plan.
 4. The same section: the two guest-side lines of a ports build, with one worked
    example over `fuguvm ssh`.
 5. `FILES`: add `distfile_cache`, `verify` and `signify_dir` to the `.fuguvmrc`
    key list, and add `share/fuguvm/signify/`.
 6. `EXIT STATUS`: extend item 1, item 3 and item 9 with the causes of this plan.
 7. `SECURITY CONSIDERATIONS` and `SEE ALSO`: state that the host verifies each
-   download under the release key, that the guest installer verifies its own
-   sets, and that a distfile verifies against the ports tree in the guest. Add
-   signify(1) to the reference list.
+   download under the release key. State that the guest installer verifies its
+   own sets, and that a distfile verifies against the ports tree in the guest.
+   Add signify(1) to the reference list.
 
 ## Tests
 
@@ -760,9 +766,10 @@ that stands in `t/fuguvm/` today. No test reaches the network.
 
 These subtests need signify(1), and each one calls
 `plan skip_all => 'signify(1) not available'` when the command is absent. The
-test generates its own key pair with `-G`, writes a manifest in the `sha256(1)`
-line form, signs it with `-S`, and seeds both files into the cache at their
-mirror paths. The manifest is then local, so the module fetches nothing:
+test generates its own key pair with `-G`, and writes a manifest in the
+`sha256(1)` line form. It signs the manifest with `-S`, and seeds both files
+into the cache at their mirror paths. The manifest is then local, so the module
+fetches nothing:
 
 - `manifest('release')` returns the cached path for a good signature.
 - `manifest('release')` returns `undef` for a tampered manifest, and `error`
@@ -878,8 +885,8 @@ mirror paths. The manifest is then local, so the module fetches nothing:
    failure under `verify yes`. The installer of a numbered release must verify
    each set by itself, and a transcript must prove that it does. If the prompt
    appears for a benign reason, the tool must instead pre-fetch and verify each
-   selected set on the host, and the script must then answer yes under a flag
-   that records the host proof. The fallback costs one method on
+   selected set on the host. The script must then answer yes under a flag that
+   records the host proof. The fallback costs one method on
    `App::FuguVM::Mirror` and one more argument on the script.
 2. **The key of the source manifest.** The plan verifies
    `/pub/OpenBSD/<version>/SHA256` under `openbsd-<NN>-base.pub`. One fetch from

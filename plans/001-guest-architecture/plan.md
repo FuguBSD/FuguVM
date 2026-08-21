@@ -6,10 +6,18 @@ Proposed.
 
 ## Purpose
 
-A `vm` block accepts `arch amd64` or `arch arm64`. The value selects the QEMU
-binary, the machine type, the firmware, the TCG CPU model, the mirror path of
-the miniroot, the installer answers, and the image-cache key. The default stays
-`arm64`.
+A `vm` block accepts `arch amd64` or `arch arm64`. The value selects these
+items:
+
+- the QEMU binary
+- the machine type
+- the firmware
+- the TCG CPU model
+- the mirror path of the miniroot
+- the installer answers
+- the image-cache key
+
+The default stays `arm64`.
 
 The accelerator rule changes with it. The tool must select KVM or HVF only when
 the host machine runs the instruction set of the guest. It must select TCG in
@@ -23,8 +31,8 @@ application, and a sibling application is not a library. No consumer can hold
 this work, and no consumer can carry a QEMU command line of its own.
 
 The architecture is a property of one machine. It therefore belongs in the `vm`
-block, beside `version`, `memory` and `disk_size`, and it flows from there to
-every module that shapes the machine.
+block, beside `version`, `memory` and `disk_size`. It flows from there to every
+module that shapes the machine.
 
 Three consumer repositories need an amd64 guest with hardware acceleration. One
 consumer needs an arm64 guest, which the tool installs today. One consumer needs
@@ -32,22 +40,28 @@ both architectures for the same port.
 
 ## Consumers and citations
 
-| Repo | Unit | Rules | Need |
-| --- | --- | --- | --- |
-| FuguTTX | `AGT-RUNTIME` | AGT-RUNTIME-1 | Each guest of the agentic suite is amd64, and the tool must select KVM on the x86_64 host. A guest that falls back to software emulation fails the target. |
-| FuguTTX | `IAC-DEV` | IAC-DEV-3 | The guest architecture of the suite is amd64, and the tool must select KVM on this host. |
-| FuguTTX | `IAC-METAL` | IAC-METAL-1 | `fuguvm ssh uname -m` must print `amd64`, and the tool must report the `kvm` accelerator. |
-| FuguTTX | `EVL-RUNS` | EVL-RUNS-1 | The suite must prove hardware acceleration before it grades a scenario. The amd64 guests use KVM. |
-| FuguTTX | `INF-ARM64` | prose of the unit | An arm64 OpenBSD guest for the arm64 ports build. The tool serves this need today, and this plan must keep it. |
-| FuguOracle | `PKG-ORACLE` | PKG-ORACLE-7 | The developer must verify both ports on OpenBSD/amd64 and on OpenBSD/arm64. |
-| FuguPass | `QA-HARNESS` | QA-HARNESS-7 | Every leg of the suite runs in an OpenBSD guest on a host that is not OpenBSD. A developer host is commonly x86_64, so the default arm64 guest would emulate. |
-| FuguPass | `QA-CALIBRATE` | QA-CALIBRATE-4 | The scaling check can run in a guest. An emulated guest gives a false round count, so the guest must match the host. |
+| Repo       | Unit           | Rules             | Need                                                                                                                                                          |
+| ---------- | -------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguTTX    | `AGT-RUNTIME`  | AGT-RUNTIME-1     | Each guest of the agentic suite is amd64, and the tool must select KVM on the x86_64 host. A guest that falls back to software emulation fails the target.    |
+| FuguTTX    | `IAC-DEV`      | IAC-DEV-3         | The guest architecture of the suite is amd64, and the tool must select KVM on this host.                                                                      |
+| FuguTTX    | `IAC-METAL`    | IAC-METAL-1       | `fuguvm ssh "uname -m"` must print `amd64`, and the tool must report the `kvm` accelerator.                                                                   |
+| FuguTTX    | `EVL-RUNS`     | EVL-RUNS-1        | The suite must prove hardware acceleration before it grades a scenario. The amd64 guests use KVM.                                                             |
+| FuguTTX    | `INF-ARM64`    | prose of the unit | An arm64 OpenBSD guest for the arm64 ports build. The tool serves this need today, and this plan must keep it.                                                |
+| FuguOracle | `PKG-ORACLE`   | PKG-ORACLE-7      | The developer must verify both ports on OpenBSD/amd64 and on OpenBSD/arm64.                                                                                   |
+| FuguPass   | `QA-HARNESS`   | QA-HARNESS-7      | Every leg of the suite runs in an OpenBSD guest on a host that is not OpenBSD. A developer host is commonly x86_64, so the default arm64 guest would emulate. |
+| FuguPass   | `QA-CALIBRATE` | QA-CALIBRATE-4    | The scaling check can run in a guest. An emulated guest gives a false round count, so the guest must match the host.                                          |
 
 Every unit above exists today. This plan opened each document and verified each
-anchor. Each rule ID is the next free number of its unit, and the specification
-edit set of this workflow adds it. No decision blocks a consumer here:
-`fuguvm` is a development-host tool, like qemu and the `scw` CLI, and a consumer
-loads no module from it.
+anchor. Each rule ID is the first free number of its unit, and the specification
+edit set of this workflow adds it. No decision blocks a consumer here. `fuguvm`
+is a development-host tool, like qemu and the `scw` CLI, and a consumer loads no
+module from it.
+
+`fuguvm ssh uname -m` exits 2 today, because the option parser of `Fugu::CLI`
+reads `-m` as an option. The quoted form `fuguvm ssh "uname -m"` works, so this
+plan uses it. FuguVM plan 003 adds the argument-vector form
+`fuguvm ssh -- uname -m` as the alternative, and FuguTTX `IAC-METAL-1` must use
+a working form.
 
 Two facts in the consumer specifications already state the need, and they stand
 today. FuguTTX `IAC-DEV` names the development host: one Elastic Metal server
@@ -89,9 +103,9 @@ Out of scope:
 
 - **The value names the OpenBSD architecture, not the QEMU machine.** The
   accepted strings are `amd64` and `arm64`, because the guest is OpenBSD. The
-  mirror path and the cache key already use that spelling:
+  mirror path and the cache key already use that spelling.
   `App::FuguVM::Miniroot::url` builds
-  `"/pub/OpenBSD/$version/" . ARCH . "/$filename"`, and
+  `"/pub/OpenBSD/$version/" . ARCH . "/$filename"`.
   `App::FuguVM::DiskCache::key` returns
   `"$version-$arch-" . substr( $hash, 0, KEY_HASH_LENGTH )`. The QEMU spellings
   `aarch64` and `x86_64` stay inside the architecture table.
@@ -99,11 +113,11 @@ Out of scope:
 - **The image cache needs no new key shape.** `App::FuguVM::DiskCache::key`
   holds the architecture in the hashed record, as `"arch=$arch"`, and in the key
   string, as `"$version-$arch-"`. An entry lives in `installed/<key>`, and
-  `store` is write-once: it returns early when `base.qcow2` exists, and it
-  publishes each entry with one rename of a sibling directory. Two
-  architectures therefore give two key strings, two entry directories, and two
-  immutable base images. The only change is the source of the value: `key` must
-  read the architecture from the VM configuration, and not from the constant
+  `store` is write-once. It returns early when `base.qcow2` exists. It publishes
+  each entry with one rename of a sibling directory. Two architectures therefore
+  give two key strings, two entry directories, and two immutable base images.
+  The only change is the source of the value. `key` must read the architecture
+  from the VM configuration, and not from the constant
   `App::FuguVM::Miniroot::ARCH`.
 
 - **Do not increase the generation counter.** The key hashes the contents of
@@ -146,7 +160,7 @@ Out of scope:
   serial port as the EFI console. The amd64 machine is `q35`, it has a display
   adapter, and it needs an x86 EFI firmware file. Both architectures boot the
   removable-media path of the install media, so neither needs a writable
-  variable store: `-bios` with a code-only file is enough, exactly as the arm64
+  variable store. `-bios` with a code-only file is enough, exactly as the arm64
   path works today.
 
 - **The amd64 boot loader writes to the display, not to the serial port.** The
@@ -155,9 +169,9 @@ Out of scope:
   must therefore move the console to `com0` before it boots the kernel.
 
 - **A disk belongs to one architecture.** `up` consults the image cache only
-  when the disk is absent, so a changed directive must not start the wrong QEMU
-  on an existing disk. The state must record the architecture of the installed
-  disk, and `up` must stop when the two disagree.
+  when the disk is absent. Therefore a changed directive must not start the
+  wrong QEMU on an existing disk. The state must record the architecture of the
+  installed disk, and `up` must stop when the two disagree.
 
 - **One invalid value must stop the run early.** `Fugu::Config` reads a value as
   a string, so the configuration loader is the boundary of the directive. The
@@ -186,14 +200,14 @@ case sensitive, so `AMD64` is an unknown value. An absent directive means
 
 ### The architecture table
 
-| Property | `arm64` | `amd64` |
-| --- | --- | --- |
-| QEMU binary | `qemu-system-aarch64` | `qemu-system-x86_64` |
-| Machine type | `virt,highmem=off` | `q35` |
-| TCG CPU model | `cortex-a57` | `qemu64` |
-| Host machine names | `aarch64`, `arm64` | `x86_64`, `amd64` |
-| Mirror path | `/pub/OpenBSD/<version>/arm64/` | `/pub/OpenBSD/<version>/amd64/` |
-| Cache key | `<version>-arm64-<hash8>` | `<version>-amd64-<hash8>` |
+| Property           | `arm64`                         | `amd64`                         |
+| ------------------ | ------------------------------- | ------------------------------- |
+| QEMU binary        | `qemu-system-aarch64`           | `qemu-system-x86_64`            |
+| Machine type       | `virt,highmem=off`              | `q35`                           |
+| TCG CPU model      | `cortex-a57`                    | `qemu64`                        |
+| Host machine names | `aarch64`, `arm64`              | `x86_64`, `amd64`               |
+| Mirror path        | `/pub/OpenBSD/<version>/arm64/` | `/pub/OpenBSD/<version>/amd64/` |
+| Cache key          | `<version>-arm64-<hash8>`       | `<version>-amd64-<hash8>`       |
 
 The firmware search list of `arm64` keeps the five paths and the Homebrew glob
 that the tool uses today. The list of `amd64` holds the x86 equivalents, in this
@@ -213,20 +227,20 @@ the list, as it does for arm64.
 
 ### The accelerator rule
 
-| Condition | Accelerator | `-cpu` |
-| --- | --- | --- |
-| `--emulate` | `tcg` | the TCG model of the architecture |
-| Linux, `/dev/kvm` is writable, and the host machine matches | `kvm` | `host` |
-| Darwin, and the host machine matches | `hvf` | `host` |
-| Every other case | `tcg` | the TCG model of the architecture |
+| Condition                                                   | Accelerator | `-cpu`                            |
+| ----------------------------------------------------------- | ----------- | --------------------------------- |
+| `--emulate`                                                 | `tcg`       | the TCG model of the architecture |
+| Linux, `/dev/kvm` is writable, and the host machine matches | `kvm`       | `host`                            |
+| Darwin, and the host machine matches                        | `hvf`       | `host`                            |
+| Every other case                                            | `tcg`       | the TCG model of the architecture |
 
 ### Exit codes
 
-| Code | Cause |
-| --- | --- |
-| 3 | The `arch` value is neither `amd64` nor `arm64`. |
-| 3 | The QEMU binary of the architecture is not on `PATH`. |
-| 1 | The state records an other architecture for the existing disk. The message names `fuguvm destroy`. |
+| Code | Cause                                                                                              |
+| ---- | -------------------------------------------------------------------------------------------------- |
+| 3    | The `arch` value is neither `amd64` nor `arm64`.                                                   |
+| 3    | The QEMU binary of the architecture is not on `PATH`.                                              |
+| 1    | The state records an other architecture for the existing disk. The message names `fuguvm destroy`. |
 
 Code 3 is `Fugu::CLI::EXIT_CONFIG_ERROR`, which `App::FuguVM::CLI` already
 imports as `EXIT_CONFIG_ERROR`.
@@ -240,25 +254,25 @@ The report gains one line, `arch`, beside `ssh_port` and `console_port`.
 The module holds the architecture table and nothing else. It uses core Perl
 only, and it loads no other module of the distribution.
 
-| Method | Contract |
-| --- | --- |
-| `App::FuguVM::Arch->new($name)` | Return the architecture object for `amd64` or `arm64`. Return `undef` for every other name. |
-| `App::FuguVM::Arch->names` | Return the supported names, sorted. A diagnostic names them, so the message and the table cannot disagree. |
-| `$arch->name` | The OpenBSD name of the architecture. |
-| `$arch->qemu_binary` | The QEMU binary name. |
-| `$arch->machine` | The `-M` machine string. |
-| `$arch->tcg_cpu` | The `-cpu` model for software emulation. |
-| `$arch->firmware_paths` | The ordered list of absolute firmware paths. |
-| `$arch->firmware_glob` | One glob pattern for the versioned Homebrew paths. |
+| Method                                         | Contract                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `App::FuguVM::Arch->new($name)`                | Return the architecture object for `amd64` or `arm64`. Return `undef` for every other name.                        |
+| `App::FuguVM::Arch->names`                     | Return the supported names, sorted. A diagnostic names them, so the message and the table cannot disagree.         |
+| `$arch->name`                                  | The OpenBSD name of the architecture.                                                                              |
+| `$arch->qemu_binary`                           | The QEMU binary name.                                                                                              |
+| `$arch->machine`                               | The `-M` machine string.                                                                                           |
+| `$arch->tcg_cpu`                               | The `-cpu` model for software emulation.                                                                           |
+| `$arch->firmware_paths`                        | The ordered list of absolute firmware paths.                                                                       |
+| `$arch->firmware_glob`                         | One glob pattern for the versioned Homebrew paths.                                                                 |
 | `$arch->accelerator($os, $host_machine, $kvm)` | Return `kvm`, `hvf` or `tcg` for one host. The method calls no syscall, so a test proves every branch on any host. |
 
 ### App::FuguVM::Config
 
-| Method | Change |
-| --- | --- |
-| `DEFAULT_ARCH` | A new constant, `arm64`, beside `DEFAULT_VERSION`. This is the one home of the default. |
+| Method           | Change                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_ARCH`   | A new constant, `arm64`, beside `DEFAULT_VERSION`. This is the one home of the default.                                                                  |
 | `load_vm($name)` | Apply `$vm->{arch} //= DEFAULT_ARCH`. Validate the value with `App::FuguVM::Arch->new`. Return `undef` when the value is unknown, and record the reason. |
-| `error` | A new method. Return the reason of the last failed `load_vm`, or `undef`. |
+| `error`          | A new method. Return the reason of the last failed `load_vm`, or `undef`.                                                                                |
 
 ### App::FuguVM::CLI
 
@@ -273,26 +287,26 @@ value gives 3, and a VM that no file declares still gives 4.
 
 ### App::FuguVM::Guest
 
-| Method | Change |
-| --- | --- |
-| `EXIT_CONFIG_ERROR` | A new constant, 3, beside `EXIT_VM_RUNNING` and `EXIT_TIMEOUT`. |
-| `_arch` | A new method. Return the `App::FuguVM::Arch` object of the configured value, and cache it. The method dies when the name has no entry: the configuration loader is the boundary, so an unknown value cannot arrive here. |
-| `_qemu_path` | A new method. Return the path of `$arch->qemu_binary` on `PATH`, or `undef`. |
-| `up`, `start` | Call `_qemu_path` first. Return `EXIT_CONFIG_ERROR` when the binary is absent, with a message that names the binary and the architecture. |
-| `up` | Compare `$config->{arch}` with `App::FuguVM::State->get_installed_arch`. Return `EXIT_ERROR` on a difference. An absent record cannot prove a difference, so the check passes. |
-| `_start_qemu` | Take the binary, the machine string and the firmware from `_arch`. |
-| `_accel_args` | Call `$arch->accelerator( $^O, _host_arch(), -w '/dev/kvm' ? 1 : 0 )`, and keep the `--emulate` branch. Pair `host` with hardware acceleration and `$arch->tcg_cpu` with `tcg`. |
-| `_find_efi_firmware` | Walk `$arch->firmware_paths`, then `$arch->firmware_glob`. |
-| `status` | Report `arch`. |
-| `QEMU_BINARY`, `TCG_CPU` | Delete both constants. The table replaces them. |
+| Method                   | Change                                                                                                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EXIT_CONFIG_ERROR`      | A new constant, 3, beside `EXIT_VM_RUNNING` and `EXIT_TIMEOUT`.                                                                                                                                                          |
+| `_arch`                  | A new method. Return the `App::FuguVM::Arch` object of the configured value, and cache it. The method dies when the name has no entry: the configuration loader is the boundary, so an unknown value cannot arrive here. |
+| `_qemu_path`             | A new method. Return the path of `$arch->qemu_binary` on `PATH`, or `undef`.                                                                                                                                             |
+| `up`, `start`            | Call `_qemu_path` first. Return `EXIT_CONFIG_ERROR` when the binary is absent, with a message that names the binary and the architecture.                                                                                |
+| `up`                     | Compare `$config->{arch}` with `App::FuguVM::State->get_installed_arch`. Return `EXIT_ERROR` on a difference. An absent record cannot prove a difference, so the check passes.                                           |
+| `_start_qemu`            | Take the binary, the machine string and the firmware from `_arch`.                                                                                                                                                       |
+| `_accel_args`            | Call `$arch->accelerator( $^O, _host_arch(), -w '/dev/kvm' ? 1 : 0 )`, and keep the `--emulate` branch. Pair `host` with hardware acceleration and `$arch->tcg_cpu` with `tcg`.                                          |
+| `_find_efi_firmware`     | Walk `$arch->firmware_paths`, then `$arch->firmware_glob`.                                                                                                                                                               |
+| `status`                 | Report `arch`.                                                                                                                                                                                                           |
+| `QEMU_BINARY`, `TCG_CPU` | Delete both constants. The table replaces them.                                                                                                                                                                          |
 
 ### App::FuguVM::Miniroot
 
-| Method | Change |
-| --- | --- |
+| Method                           | Change                                          |
+| -------------------------------- | ----------------------------------------------- |
 | `new($cache_dir, $proxy, $arch)` | Take the architecture name as a third argument. |
-| `url($version)` | Build the path from `$self->{arch}`. |
-| `ARCH` | Delete the constant. |
+| `url($version)`                  | Build the path from `$self->{arch}`.            |
+| `ARCH`                           | Delete the constant.                            |
 
 The miniroot file name does not change: `_image_filename` returns
 `miniroot78.img` for both architectures, and only the path segment differs.
@@ -306,10 +320,10 @@ caching. The module no longer reads `App::FuguVM::Miniroot::ARCH`.
 
 ### App::FuguVM::State
 
-| Method | Change |
-| --- | --- |
+| Method                  | Change                                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
 | `mark_installed($arch)` | Record the architecture with the install mark. The argument is required, so no path can forget it. |
-| `get_installed_arch` | Return the recorded architecture, or `undef`. |
+| `get_installed_arch`    | Return the recorded architecture, or `undef`.                                                      |
 
 ### App::FuguVM::Console
 
@@ -319,26 +333,26 @@ caching. The module no longer reads `App::FuguVM::Miniroot::ARCH`.
 ### share/fuguvm/expect/install.exp
 
 The script takes a fifth argument, the architecture. It prints the usage line
-and exits 1 when the argument list does not carry it, and also when the value is
-neither `amd64` nor `arm64`. The configuration loader is the boundary of the
-value, so `App::FuguVM::CLI` never reaches this exit.
+and exits 1 when the argument list does not carry it. It does the same when the
+value is neither `amd64` nor `arm64`. The configuration loader is the boundary
+of the value, so `App::FuguVM::CLI` never reaches this exit.
 
 These answers differ between the two architectures. Every other answer stays as
 it is.
 
-| Prompt | `arm64` answer | `amd64` answer | Reason |
-| --- | --- | --- | --- |
-| `boot>` | one carriage return | `stty com0 115200`, then `set tty com0`, then `boot` | The arm64 machine has no display adapter, so the loader already writes to the serial port. The amd64 machine has one, so the loader must move to `com0`. |
-| `Use (W)hole disk` | `w` | the letter that selects a whole-disk GPT | The amd64 guest boots UEFI, so its disk needs a GPT with an EFI system partition. |
+| Prompt             | `arm64` answer      | `amd64` answer                                       | Reason                                                                                                                                                   |
+| ------------------ | ------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `boot>`            | one carriage return | `stty com0 115200`, then `set tty com0`, then `boot` | The arm64 machine has no display adapter, so the loader already writes to the serial port. The amd64 machine has one, so the loader must move to `com0`. |
+| `Use (W)hole disk` | `w`                 | the letter that selects a whole-disk GPT             | The amd64 guest boots UEFI, so its disk needs a GPT with an EFI system partition.                                                                        |
 
 These answers stay the same, and the plan records why:
 
-| Prompt | Answer | Reason |
-| --- | --- | --- |
-| `Terminal type?` | the default | Both installers run on a serial console, and both propose the same type. |
-| `Which disk is the root disk?` | the default | The working disk is the first `-drive` of the QEMU command line, and the install media is the second. The working disk is therefore the first virtio disk on both machines, and the script names no disk device. |
-| `HTTP Server?`, `Server directory?` | `cdn.openbsd.org`, the default | The installer builds the architecture directory of the sets itself. |
-| `Set name(s)?` | `-game* -x*` | The set names hold no architecture. |
+| Prompt                              | Answer                         | Reason                                                                                                                                                                                                           |
+| ----------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Terminal type?`                    | the default                    | Both installers run on a serial console, and both propose the same type.                                                                                                                                         |
+| `Which disk is the root disk?`      | the default                    | The working disk is the first `-drive` of the QEMU command line, and the install media is the second. The working disk is therefore the first virtio disk on both machines, and the script names no disk device. |
+| `HTTP Server?`, `Server directory?` | `cdn.openbsd.org`, the default | The installer builds the architecture directory of the sets itself.                                                                                                                                              |
+| `Set name(s)?`                      | `-game* -x*`                   | The set names hold no architecture.                                                                                                                                                                              |
 
 A wrong answer costs one installation, and not a corrupt cache: the cache key
 hashes `install.exp`, so a correction rotates the key.
@@ -358,34 +372,34 @@ the change merges.
 
 ## Files
 
-| File | Content |
-| --- | --- |
-| `lib/App/FuguVM/Arch.pm` | The new module: the architecture table |
-| `lib/App/FuguVM/Arch.pod` | The API sidecar of the new module |
-| `lib/App/FuguVM.pod` | One index entry for `App::FuguVM::Arch` |
-| `lib/App/FuguVM/Config.pm` | `DEFAULT_ARCH`, the validation in `load_vm`, and `error` |
-| `lib/App/FuguVM/Config.pod` | The `arch` directive, the default, and `error` |
-| `lib/App/FuguVM/CLI.pm` | `$self->{load_exit}`, and `arch` in the `cmd_init` template |
-| `lib/App/FuguVM/CLI.pod` | Exit code 3 for an unknown `arch` value and an absent QEMU binary. One sentence also becomes true again: `App::FuguVM::Guest` defines the codes that it returns, because `App::FuguVM::CLI` loads `App::FuguVM::Guest` and the reverse import would be a cycle |
-| `lib/App/FuguVM/Guest.pm` | `_arch`, `_qemu_path`, the machine and firmware selection, the accelerator call, the disk guard, `arch` in `status`, and the deletion of `QEMU_BINARY` and `TCG_CPU` |
-| `lib/App/FuguVM/Guest.pod` | One section on the architecture and the accelerator |
-| `lib/App/FuguVM/Miniroot.pm` | The architecture argument, and the deletion of `ARCH` |
-| `lib/App/FuguVM/Miniroot.pod` | `new` and `url` |
-| `lib/App/FuguVM/DiskCache.pm` | `key` reads the architecture from the configuration |
-| `lib/App/FuguVM/DiskCache.pod` | The source of the architecture in the key |
-| `lib/App/FuguVM/State.pm` | `mark_installed($arch)` and `get_installed_arch` |
-| `lib/App/FuguVM/State.pod` | The two methods |
-| `lib/App/FuguVM/Console.pm` | `run_install` passes the architecture |
-| `lib/App/FuguVM/Console.pod` | The argument list of `run_install` |
-| `share/fuguvm/expect/install.exp` | The fifth argument and the amd64 answers |
-| `share/fuguvm/fuguvm.conf.sample` | The `arch` line in the sample `vm` block |
-| `share/fuguvm/vms/default.conf.sample` | The `arch` line |
-| `share/fuguvm/vms/minimal.conf.sample` | The `arch` line |
-| `man/fuguvm/fuguvm.1` | Five edits, listed below |
-| `deps/Linux.txt` | `qemu-system-x86` and `ovmf` |
-| `CLAUDE.md` | The external program list gains `qemu-system-x86_64`, and the layout list gains the architecture module |
-| `t/fuguvm/arch.t` | The new unit test |
-| `t/fuguvm/config.t`, `t/fuguvm/guest.t`, `t/fuguvm/miniroot.t`, `t/fuguvm/diskcache.t`, `t/fuguvm/state.t`, `t/fuguvm/cli.t` | The tests below |
+| File                                                                                                                         | Content                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/App/FuguVM/Arch.pm`                                                                                                     | The new module: the architecture table                                                                                                                                                                                                                         |
+| `lib/App/FuguVM/Arch.pod`                                                                                                    | The API sidecar of the new module                                                                                                                                                                                                                              |
+| `lib/App/FuguVM.pod`                                                                                                         | One index entry for `App::FuguVM::Arch`                                                                                                                                                                                                                        |
+| `lib/App/FuguVM/Config.pm`                                                                                                   | `DEFAULT_ARCH`, the validation in `load_vm`, and `error`                                                                                                                                                                                                       |
+| `lib/App/FuguVM/Config.pod`                                                                                                  | The `arch` directive, the default, and `error`                                                                                                                                                                                                                 |
+| `lib/App/FuguVM/CLI.pm`                                                                                                      | `$self->{load_exit}`, and `arch` in the `cmd_init` template                                                                                                                                                                                                    |
+| `lib/App/FuguVM/CLI.pod`                                                                                                     | Exit code 3 for an unknown `arch` value and an absent QEMU binary. One sentence also becomes true again: `App::FuguVM::Guest` defines the codes that it returns, because `App::FuguVM::CLI` loads `App::FuguVM::Guest` and the reverse import would be a cycle |
+| `lib/App/FuguVM/Guest.pm`                                                                                                    | `_arch`, `_qemu_path`, the machine and firmware selection, the accelerator call, the disk guard, `arch` in `status`, and the deletion of `QEMU_BINARY` and `TCG_CPU`                                                                                           |
+| `lib/App/FuguVM/Guest.pod`                                                                                                   | One section on the architecture and the accelerator                                                                                                                                                                                                            |
+| `lib/App/FuguVM/Miniroot.pm`                                                                                                 | The architecture argument, and the deletion of `ARCH`                                                                                                                                                                                                          |
+| `lib/App/FuguVM/Miniroot.pod`                                                                                                | `new` and `url`                                                                                                                                                                                                                                                |
+| `lib/App/FuguVM/DiskCache.pm`                                                                                                | `key` reads the architecture from the configuration                                                                                                                                                                                                            |
+| `lib/App/FuguVM/DiskCache.pod`                                                                                               | The source of the architecture in the key                                                                                                                                                                                                                      |
+| `lib/App/FuguVM/State.pm`                                                                                                    | `mark_installed($arch)` and `get_installed_arch`                                                                                                                                                                                                               |
+| `lib/App/FuguVM/State.pod`                                                                                                   | The two methods                                                                                                                                                                                                                                                |
+| `lib/App/FuguVM/Console.pm`                                                                                                  | `run_install` passes the architecture                                                                                                                                                                                                                          |
+| `lib/App/FuguVM/Console.pod`                                                                                                 | The argument list of `run_install`                                                                                                                                                                                                                             |
+| `share/fuguvm/expect/install.exp`                                                                                            | The fifth argument and the amd64 answers                                                                                                                                                                                                                       |
+| `share/fuguvm/fuguvm.conf.sample`                                                                                            | The `arch` line in the sample `vm` block                                                                                                                                                                                                                       |
+| `share/fuguvm/vms/default.conf.sample`                                                                                       | The `arch` line                                                                                                                                                                                                                                                |
+| `share/fuguvm/vms/minimal.conf.sample`                                                                                       | The `arch` line                                                                                                                                                                                                                                                |
+| `man/fuguvm/fuguvm.1`                                                                                                        | Five edits, listed below                                                                                                                                                                                                                                       |
+| `deps/Linux.txt`                                                                                                             | `qemu-system-x86` and `ovmf`                                                                                                                                                                                                                                   |
+| `CLAUDE.md`                                                                                                                  | The external program list gains `qemu-system-x86_64`, and the layout list gains the architecture module                                                                                                                                                        |
+| `t/fuguvm/arch.t`                                                                                                            | The new unit test                                                                                                                                                                                                                                              |
+| `t/fuguvm/config.t`, `t/fuguvm/guest.t`, `t/fuguvm/miniroot.t`, `t/fuguvm/diskcache.t`, `t/fuguvm/state.t`, `t/fuguvm/cli.t` | The tests below                                                                                                                                                                                                                                                |
 
 `README.md` holds no architecture claim, so it needs no edit. `scripts/dist`
 finds every module under `lib/` and builds the `MANIFEST` from the staged tree,
@@ -396,12 +410,12 @@ The five edits of `man/fuguvm/fuguvm.1`:
 
 1. `DESCRIPTION`: replace the paragraph that states that the guest architecture
    is fixed. Name the `arch` directive, the two values, and the default.
-2. The `--emulate` option: replace the accelerator rule with the host match
-   rule of this plan.
+2. The `--emulate` option: replace the accelerator rule with the host match rule
+   of this plan.
 3. `FILES`: add `arch` to the per-VM key list.
 4. `EXIT STATUS`: extend item 3 with the unknown value and the absent QEMU
    binary.
-5. `EXAMPLES`: add an amd64 `vm` block and the `fuguvm ssh uname -m` output
+5. `EXAMPLES`: add an amd64 `vm` block and the `fuguvm ssh "uname -m"` output
    `amd64`, which FuguTTX `IAC-METAL-1` names.
 
 The `IMAGE CACHE` section already lists the architecture as a key input, and the
@@ -443,7 +457,7 @@ that stands in `t/fuguvm/` today.
 
 - `_arch` returns the object of the configured value, and dies on an unknown
   value.
-- `_accel_args` keeps the `--emulate` behaviour: `tcg` with the TCG model of the
+- `_accel_args` keeps the `--emulate` behavior: `tcg` with the TCG model of the
   architecture.
 - `_accel_args` pairs `host` with `kvm` and with `hvf`, and the TCG model with
   `tcg`, as it does today.
@@ -471,8 +485,9 @@ that stands in `t/fuguvm/` today.
 that `get_installed_arch` reads it back. It also proves that
 `get_installed_arch` returns `undef` for a fresh state.
 
-`t/fuguvm/cli.t` proves that a project with an unknown `arch` value exits 3, and
-that a project with a valid value and an undeclared VM name still exits 4.
+`t/fuguvm/cli.t` proves that a project with an unknown `arch` value exits 3. It
+also proves that a project with a valid value and an undeclared VM name still
+exits 4.
 
 ## Acceptance
 
@@ -486,11 +501,11 @@ that a project with a valid value and an undeclared VM name still exits 4.
 - One recorded installer transcript for each architecture. Each transcript must
   confirm every answer of the two tables above. A transcript is the only proof
   that an installer prompt reads as the plan states.
-- `fuguvm up`, then `fuguvm ssh uname -m`, prints `amd64` on an x86_64 Linux
-  host with a writable `/dev/kvm`, and the log names the `kvm` accelerator.
-  FuguTTX `IAC-METAL-1` states this test.
-- `fuguvm up`, then `fuguvm ssh uname -m`, prints `arm64` on the same host under
-  TCG. The arm64 guest must not regress.
+- `fuguvm up`, then `fuguvm ssh "uname -m"`, prints `amd64` on an x86_64 Linux
+  host with a writable `/dev/kvm`. The log names the `kvm` accelerator. FuguTTX
+  `IAC-METAL-1` states this test.
+- `fuguvm up`, then `fuguvm ssh "uname -m"`, prints `arm64` on the same host
+  under TCG. The arm64 guest must not regress.
 - The image cache holds both entries at the same time, one for each
   architecture, and each base image is mode 0400.
 - `make deps` installs the new Linux packages, and the firmware search finds a
@@ -501,7 +516,7 @@ that a project with a valid value and an undeclared VM name still exits 4.
 1. **The amd64 firmware console.** The plan states that the OVMF console reaches
    the serial port, so the `boot>` prompt arrives at the expect script. One
    transcript must confirm it. When it does not arrive, the console route needs
-   another answer, and `autoinstall(8)` is that answer: an `autoinstall(8)`
+   another answer, and `autoinstall(8)` is that answer. An `autoinstall(8)`
    response file needs no console at all. Plan 004 owns that install mode, and
    this plan would then depend on it.
 2. **The whole-disk answer of the amd64 installer.** The plan states that the

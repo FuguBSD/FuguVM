@@ -30,12 +30,12 @@ and the accelerator rule. This plan builds on that work. An arm64 export stays
 useful for a FuguBSD developer, but no Scaleway host can boot it.
 
 Plan 002 is not a dependency. Two of its changes help this work, and this plan
-names each one where it applies: the lock around the first population of one
-cache entry, and the `bind_address` directive.
+names each one where it applies. The two changes are the lock around the first
+population of one cache entry, and the `bind_address` directive.
 
 ## Purpose
 
-Three changes carry an OpenBSD disk image through its whole life: the tool
+Three changes carry an OpenBSD disk image through its whole life. The tool
 builds one image, it publishes the image as a file, and an other host consumes
 that file.
 
@@ -90,9 +90,9 @@ mode. This plan must not change that, because no second consumer needs one.
 Every unit above exists today, and this plan opened `infrastructure.md`,
 `agents.md` and `evaluation.md` and verified each anchor and each register row.
 `IAC-IMAGE`, `IAC-HOSTS`, `AGT-RUNTIME`, `AGT-FEEDBACK`, `IAC-DEV`, `EVL-RUNS`
-and `EVL-AGENTIC` carry no rule today, so every rule number above is the first
-free number of its unit. The specification edit set of this workflow adds each
-cited rule.
+and `EVL-AGENTIC` carry no rule today. Every rule number above is therefore the
+first free number of its unit. The specification edit set of this workflow adds
+each cited rule.
 
 No decision blocks a consumer here. `fuguvm` is a development-host tool, like
 qemu and the `scw` CLI, and the repository loads no module from it. FuguTTX D7
@@ -187,10 +187,10 @@ Out of scope:
   ```
 
   FuguTTX `AGT-FEEDBACK-1` needs `snapshot save` and `snapshot restore` on the
-  imported image, and `AGT-RUNTIME` states that the host needs "A bootable
-  OpenBSD qemu image with snapshot support". An overlay on a file in some
-  download directory therefore fails two consumers. The tool must publish the
-  outside file as a cache entry, and every existing verb then works unchanged.
+  imported image. `AGT-RUNTIME` states that the host needs "A bootable OpenBSD
+  qemu image with snapshot support". An overlay on a file in some download
+  directory therefore fails two consumers. The tool must publish the outside
+  file as a cache entry, and every existing verb then works unchanged.
 
 - **The cache key must cover the response file.** The key hashes each input that
   shapes an installed disk:
@@ -454,11 +454,15 @@ fuguvm image export <path> [--format=qcow2|raw]
 | The raw form                   | Sparse. The apparent size is the virtual size of the disk.                                                  |
 
 The source resolution uses three methods that exist today:
-`App::FuguVM::Disk->backing_file` returns the backing file of the working disk,
-`App::FuguVM::DiskCache->key_for_path` returns the key of the entry that holds
-it, and `App::FuguVM::DiskCache->base_path` returns the base image of that key.
-A snapshot layer resolves to the same key, because `key_for_path` accepts a
-snapshot path: "The path can point to a base image or to a snapshot."
+
+- `App::FuguVM::Disk->backing_file` returns the backing file of the working
+  disk.
+- `App::FuguVM::DiskCache->key_for_path` returns the key of the entry that holds
+  it.
+- `App::FuguVM::DiskCache->base_path` returns the base image of that key.
+
+A snapshot layer resolves to the same key. The reason is that `key_for_path`
+accepts a snapshot path: "The path can point to a base image or to a snapshot."
 
 The command writes one `key: value` line for each field to standard output, in
 sorted key order:
@@ -493,10 +497,14 @@ validates the path only. Thus the secret has a short life in the process, and no
 configuration hash carries it. The tool logs a warning when the file mode lets a
 group or another user read it.
 
-A published image and a consuming host therefore share one credential: the
-response file of the build sets the root password, the stack keeps the password
-in a file, and each consuming host names that file. The tool then installs the
-key of the host over a password login, exactly as it does after a local install.
+A published image and a consuming host therefore share one credential:
+
+- The response file of the build sets the root password.
+- The stack keeps the password in a file.
+- Each consuming host names that file.
+
+The tool then installs the key of the host over a password login, exactly as it
+does after a local install.
 
 ### The four requirements of FuguTTX IAC-HOSTS
 
@@ -547,7 +555,7 @@ The record of each mode:
 | `import`      | `version`, `arch`, `install_mode=import`, the digest of the generation file                                                                                     | `<version>-<arch>-<hash8>` |
 
 The `import` record holds no script digest and no `disk_size`, and the plan
-states why above: no script shaped the image, and an overlay inherits the
+states why above. No script shaped the image, and an overlay inherits the
 virtual size of its base. An imported entry therefore survives a change to a
 shipped expect script, and each host of a fleet derives one key.
 
@@ -706,8 +714,8 @@ The six edits of `man/fuguvm/fuguvm.1`:
 5. `FILES`: add `autoinstall`, `base_disk` and `root_password_file` to the
    per-VM key list.
 6. `EXIT STATUS` and `SECURITY CONSIDERATIONS`: extend item 1, item 2 and item 3
-   with the causes of this plan, and state that the responder binds the loopback
-   address and that a response file can hold the root password.
+   with the causes of this plan. State that the responder binds the loopback
+   address, and that a response file can hold the root password.
 
 ## Tests
 
@@ -801,18 +809,18 @@ PID file.
   show the install prompt, the response-file prompt, the fetch of the file, and
   the completion line. A transcript is the only proof that an installer prompt
   reads as the plan states.
-- The guest log of that run must show the request line of the responder, and the
+- The guest log of that run must show the request line of the responder. The
   responder must show one 200 answer and no other answer.
 - `fuguvm up` with an `autoinstall` directive, then `fuguvm disk check`, reports
   `ok`. The `-no-reboot` exit must leave a consistent disk.
 - The image cache holds one entry for the `expect` mode and one for the
-  `autoinstall` mode at the same time, and each base image is mode 0400.
+  `autoinstall` mode at the same time. Each base image is mode 0400.
 - `fuguvm image export /tmp/openbsd.qcow2` writes the file, and `qemu-img info`
   reports the qcow2 format and no backing file.
 - `fuguvm image export /tmp/openbsd.raw --format=raw` writes a raw file, and a
   second export onto the same path exits 1.
 - A second project with `base_disk /tmp/openbsd.qcow2` runs `fuguvm up`, and
-  `fuguvm ssh uname -m` prints `amd64`. The project installs nothing, and the
+  `fuguvm ssh "uname -m"` prints `amd64`. The project installs nothing, and the
   QEMU log shows no install media.
 - `fuguvm snapshot save base` and `fuguvm snapshot restore base` both succeed on
   that imported guest. FuguTTX `AGT-FEEDBACK-1` needs both.
@@ -828,20 +836,20 @@ PID file.
 ## Open questions
 
 1. **The two console prompts.** The plan states that the installer offers an
-   autoinstall at its first prompt, and that it then asks for the location of
-   the response file. The exact text of both prompts must come from a
-   transcript. The expect script matches on a prefix, so a small difference
-   costs one script edit and one cache-key rotation.
+   autoinstall at its first prompt. It then asks for the location of the
+   response file. The exact text of both prompts must come from a transcript.
+   The expect script matches on a prefix, so a small difference costs one script
+   edit and one cache-key rotation.
 2. **The loopback bind.** The plan binds the responder to `127.0.0.1`, because
    the guest reaches the host through the QEMU gateway. One guest fetch must
    prove that route to a loopback-only listener. If it fails, the responder must
-   bind the address that the QEMU network reaches, and the plan must then state
-   that the file is readable on that address for the length of the install.
+   bind the address that the QEMU network reaches. The plan must then state that
+   the file is readable on that address for the length of the install.
 3. **The site set of `rc.local`.** `IAC-HOSTS` needs an `rc.local` in the image,
    and an autoinstall response file reaches a file only through a `siteXX.tgz`
    set. The tool serves the response file and no other file. Whether one
    response file can name a second sets location needs a transcript. The
-   fallback is a provision after the install: `fuguvm put` and `fuguvm ssh` of
+   fallback is a provision after the install. `fuguvm put` and `fuguvm ssh` of
    plan 003 write the file, and the export then needs the working disk. That
    fallback would add `fuguvm image export --from=disk`, which flattens the
    working disk onto the base. This plan does not add that option, and no

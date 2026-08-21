@@ -31,8 +31,8 @@ changes, so FuguVM is the one repository that can hold them.
 Fugu holds no part of this work. Three of the four changes are QEMU policy: a
 hostfwd address, a serial listener address, and the version of one binary. The
 fourth change, the free-port probe, has a Fugu pattern already, and that pattern
-is a private method: `Fugu::Proxy::_find_free_port` binds each port of a range
-and returns the first port that nothing holds. A consumer cannot use the pattern
+is a private method. `Fugu::Proxy::_find_free_port` binds each port of a range.
+It returns the first port that nothing holds. A consumer cannot use the pattern
 by itself, because a consumer needs the port of a guest, and only the tool knows
 that port. The probe therefore stays in FuguVM, beside the QEMU command line.
 
@@ -121,8 +121,8 @@ Out of scope:
   prints nothing at all, because `MODE_QUIET` drops every message.
 
 - **`fuguvm snapshot list --names` is the pattern.** The method writes bare
-  names with `say`, and its comment states the rule: "--names writes bare names
-  to stdout, where a shell can read them." The `status` report must follow it.
+  names with `say`. Its comment states the rule: "--names writes bare names to
+  stdout, where a shell can read them." The `status` report must follow it.
 
 - **The forwarded ports listen on every host interface today.** The QEMU command
   line carries no address:
@@ -315,9 +315,9 @@ The lock file lives in the cache directory, and every project that shares that
 directory shares the lock. Two projects on one host therefore serialize one
 installation, which is what a shared read-only cache needs.
 
-A dot file cannot collide with an entry: `list` reads only a directory whose
-name has no leading dot, and `sweep_temp` removes only a directory whose name
-starts with `.tmp.`.
+A dot file cannot collide with an entry. `list` reads only a directory whose
+name has no leading dot. `sweep_temp` removes only a directory whose name starts
+with `.tmp.`.
 
 ### The port lock
 
@@ -401,7 +401,7 @@ store is the JSON file that `Fugu::StateFile` already writes at mode 0600.
 | `lock_entry($key, $timeout)` | Return an open, exclusively locked handle on the lock file of `$key`. Return `undef` on the deadline, and `undef` when the file cannot open. |
 
 The module keeps the write-once rule of `store`. The lock removes the wasted
-install, and it does not replace the rule: a lock that a deadline released must
+install, and it does not replace the rule. A lock that a deadline released must
 never publish a second entry.
 
 ### App::FuguVM::CLI
@@ -468,8 +468,8 @@ The six edits of `man/fuguvm/fuguvm.1`:
 1. `DESCRIPTION`, the `status` item: state the standard-output contract, list
    every key, and name the optional key argument.
 2. `DESCRIPTION`, the `console` item: name the bind address in the advice.
-3. `FILES`: add `bind_address` to the per-VM key list, add `qemu_version` to the
-   project key list, and state the `auto` value of the two port directives.
+3. `FILES`: add `bind_address` to the per-VM key list. Add `qemu_version` to the
+   project key list. State the `auto` value of the two port directives.
 4. `EXIT STATUS`: extend item 3 with the version mismatch and the invalid
    directive value. Extend item 2 with the unknown `status` key.
 5. `SECURITY CONSIDERATIONS`: replace the paragraph that states that both ports

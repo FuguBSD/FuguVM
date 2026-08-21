@@ -4,6 +4,18 @@
 
 Proposed.
 
+This plan depends on plan 002,
+[`plans/002-scriptable-and-parallel-guests/plan.md`](../002-scriptable-and-parallel-guests/plan.md).
+Plan 002 adds the `bind_address` directive, whose default is `127.0.0.1`, and
+the method `App::FuguVM::Guest->connect_address`. Each verb of this plan
+connects to that address.
+
+This plan also depends on Fugu plan 003. That plan lives in the Fugu repository,
+at `plans/003-ssh-read-file-and-host-keys/plan.md`. It adds
+`Fugu::SSH->read_file`, which `fuguvm get` needs. That plan lands in two parts:
+part one adds `read_file`, and part two adds the strict host-key mode later. No
+verb of this plan sets the strict mode.
+
 ## Purpose
 
 A script needs three verbs that the tool does not give today.
@@ -28,8 +40,8 @@ application, and a sibling application is not a library. Hard rule 1 of the
 briefing states it, and `t/fuguvm/boundary.t` enforces it.
 
 Four consumer harnesses must copy a source tree into a guest, run a build step
-there, and copy a report back out. No consumer can hold that work, because no
-consumer may load an `App::FuguVM` module.
+there, and copy a report back out. No consumer can hold that work, because a
+consumer must not load an `App::FuguVM` module.
 
 The transport half belongs in `Fugu::`, and it lands there: Fugu plan 003 adds
 `Fugu::SSH->read_file`, beside the `write_file` that stands today. This plan
@@ -56,7 +68,7 @@ an operator at the keyboard instead of a script.
 | FuguPass   | `QA-HARNESS` (spec/testing.md)       | QA-HARNESS-8   | `fuguvm expect` answers a readpassphrase(3) prompt on the console. The verb stands today   |
 | FuguTTX    | `TRN-TRACES` (spec/training.md)      | — (prose only) | The rollout driver copies in, copies out, runs each step over the ssh verb, reads the code |
 | FuguTTX    | `EVL-AGENTIC` (spec/evaluation.md)   | — (prose only) | The suite operates each guest with the `fuguvm` command, and links to no FuguVM module     |
-| FuguTTX    | `IAC-METAL` (spec/infrastructure.md) | IAC-METAL-1    | `fuguvm ssh uname -m` must print `amd64` and must return exit code 0                       |
+| FuguTTX    | `IAC-METAL` (spec/infrastructure.md) | IAC-METAL-1    | `fuguvm ssh "uname -m"` must print `amd64` and must return exit code 0                     |
 
 Every unit above exists today. This plan opened each document and verified each
 anchor. Each rule number is the next free number of its unit, and the
@@ -86,8 +98,8 @@ FuguTTX must not call `Fugu::SSH`. Decision D7 states that the client loads only
 qemu and the `scw` CLI, so no decision blocks it. FuguTTX plan 001 proposes the
 D7 change, and it waits for a human.
 
-`fuguvm ssh uname -m` of IAC-METAL-1 needs an amd64 guest, which FuguVM plan 001
-adds. The argument-vector form of the same command needs this plan.
+The architecture check of IAC-METAL-1 needs an amd64 guest, which FuguVM plan
+001 adds. The argument-vector form of the same command needs this plan.
 
 ## Scope
 
@@ -152,8 +164,8 @@ The `ssh` entry declares no option, so the parser knows `help|h` only, and it
 permutes: it reads an option after a non-option argument. A recorded run proves
 the result. `fuguvm ssh uname -m` prints `Unknown option: m` and exits 2 today.
 `fuguvm ssh ls -l /tmp` fails the same way. Two documents already carry the
-broken form: the SYNOPSIS of `lib/App/FuguVM.pod` shows `fuguvm ssh uname -a`,
-and FuguTTX IAC-METAL-1 names `fuguvm ssh uname -m`.
+broken form: the SYNOPSIS of `lib/App/FuguVM.pod` shows `fuguvm ssh uname -a`.
+FuguTTX IAC-METAL-1 names the quoted form `fuguvm ssh "uname -m"`, which works.
 
 The `--` separator is the answer, and it works today. Getopt::Long stops at the
 separator, removes it, and leaves the rest of the vector alone. So
@@ -265,8 +277,8 @@ chardev:
 An installation and `fuguvm expect` both attach to that one port. So an operator
 must not attach while either runs.
 
-**The loopback address must be a literal.** `cmd_ssh` already carries the
-reason:
+**The connect address comes from the guest.** `cmd_ssh` already carries the
+reason for an address and not a name:
 
 ```perl
 	# The connection uses the SSH agent for authentication. Connect
@@ -275,8 +287,9 @@ reason:
 	# resolves to ::1 first.
 ```
 
-`cmd_console` prints `localhost` today. The attach verb must use `127.0.0.1`,
-for the same reason.
+`cmd_console` prints `localhost` today. Plan 002 adds
+`App::FuguVM::Guest->connect_address`, and each verb of this plan must take the
+address from that method.
 
 **`--quiet` hides the whole console verb today.** The four lines go through the
 logger, and `_prepare` builds a quiet logger for `--quiet`. So today
@@ -393,7 +406,8 @@ fuguvm console
 ```
 
 The verb attaches the terminal of the operator to the serial console of the
-guest. It runs telnet(1) against `127.0.0.1` and the `console_port` of the VM.
+guest. It runs telnet(1) against the connect address of the guest and the
+`console_port` of the VM.
 
 The verb logs one line before it attaches: the address, the port, and how to
 leave. The line goes through the logger, so `--quiet` drops it and the
@@ -405,8 +419,8 @@ signal kills telnet(1). No end of file arrives from the guest, because the guest
 never closes the console.
 
 The verb restores the terminal on every exit path. The man page must state that
-`fuguvm expect` and an installation each hold the same port, so an operator must
-not attach while one runs.
+`fuguvm expect` and an installation each hold the same port. Therefore an
+operator must not attach while one runs.
 
 ### Exit codes
 
@@ -428,20 +442,21 @@ once it connects.
 The module holds the remote side of one running guest. It owns the `Fugu::SSH`
 object, the argument quoting, the local walk, and the publish order. Thus
 `App::FuguVM::CLI` keeps three thin command bodies, and one module holds the
-loopback rule and the session timeout.
+session timeout.
 
-| Method                        | Contract                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------------- |
-| `new(port => $port)`          | Build the object. It opens nothing. `host` is `127.0.0.1`, and `user` is `root` |
-| `run(@argv)`                  | Run one argument vector. Return the hash of `Fugu::SSH->run_command`            |
-| `interactive()`               | Open an interactive session. Return the exit code of ssh(1)                     |
-| `put($local, $remote, %args)` | Copy a file or a directory in. Return 1, or `undef`. `%args` takes `mode`       |
-| `get($remote, $local)`        | Copy one guest file out. Return 1, or `undef`                                   |
-| `quote_argv(@argv)`           | Return one remote command string. A class method                                |
+| Method                              | Contract                                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `new(host => $host, port => $port)` | Build the object. It opens nothing. `host` is the connect address of the guest, and `user` is `root` |
+| `run(@argv)`                        | Run one argument vector. Return the hash of `Fugu::SSH->run_command`                                 |
+| `interactive()`                     | Open an interactive session. Return the exit code of ssh(1)                                          |
+| `put($local, $remote, %args)`       | Copy a file or a directory in. Return 1, or `undef`. `%args` takes `mode`                            |
+| `get($remote, $local)`              | Copy one guest file out. Return 1, or `undef`                                                        |
+| `quote_argv(@argv)`                 | Return one remote command string. A class method                                                     |
 
-`new` dies when the caller gives no port. That is a programming error. `run`
-dies on an empty vector, for the same reason. Every other failure is a return
-value, and the module reports each reason through `Fugu::Log->default`.
+`new` dies when the caller gives no host, and it dies when the caller gives no
+port. Each one is a programming error. `run` dies on an empty vector, for the
+same reason. Every other failure is a return value, and the module reports each
+reason through `Fugu::Log->default`.
 
 `quote_argv` wraps each word in single quotes, and it replaces each single quote
 inside a word with `'\''`. An empty word becomes `''`. The words join with one
@@ -482,9 +497,9 @@ death to 128 plus the signal number. So the verb needs no code of its own.
 
 The restore is idempotent, and step 4 runs it even when step 2 already ran it.
 
-`App::FuguVM::CLI` builds the object with `host => '127.0.0.1'`. `cmd_expect`
-keeps `localhost`, because a change there is a behaviour change outside this
-plan.
+`App::FuguVM::CLI` builds the object with `host => $vm->connect_address`.
+`cmd_expect` keeps `localhost`, because a change there is a behavior change
+outside this plan.
 
 ### `App::FuguVM::CLI`
 
@@ -552,22 +567,21 @@ change. `cpanfile` and `deps/*.txt` do not change.
 
 The five edits of `man/fuguvm/fuguvm.1`:
 
-1. The command list: add `put` and `get`, with the argument order, the `--mode`
+1. The command list: add `put` and `get`. Name the argument order, the `--mode`
    rule, the absolute-path rule, and the non-atomic limit of a directory copy.
 2. The command list: replace the `ssh` entry. Name the argument vector, the `--`
    separator, the absent terminal, and the absent standard input.
 3. The command list: replace the `console` entry. Name the attachment, the
    `Ctrl-]` escape key, and the one-client rule.
 4. `EXIT STATUS`: state that `fuguvm ssh` with a command returns the code of the
-   remote command, and that a remote code can read like a tool code. Name the
-   diagnostic on standard error as the way to tell them apart.
+   remote command. State also that a remote code can read like a tool code. Name
+   the diagnostic on standard error as the way to tell them apart.
 5. `EXAMPLES`: `fuguvm ssh "uname -a"` becomes `fuguvm ssh -- uname -a`. Add one
    `put`, `ssh` and `get` sequence, which FuguOracle TEST-INTEROP-7 describes.
 
 `SECURITY CONSIDERATIONS` also gains two sentences. `put` and `get` reach the
-guest as root, over a port that listens on each host interface. The console port
-carries no authentication of its own, and the guest login prompt is the only
-gate.
+guest as root, over the forwarded SSH port. The console port carries no
+authentication of its own, and the guest login prompt is the only gate.
 
 ## Tests
 
@@ -643,18 +657,21 @@ them.
 - The `.pod` sidecar of each changed module documents every public sub.
 - FuguVM passes against a build of the Fugu branch of plan 003:
   `cpanm --local-lib=local ../Fugu/build/Fugu-*.tar.gz`, then `make check`.
-- One recorded live run against a guest proves the transfer: `fuguvm up`,
-  `fuguvm wait`, `fuguvm put lib /root/lib`,
-  `fuguvm ssh -- find /root/lib -type f`,
-  `fuguvm get /root/lib/App/FuguVM.pm /tmp/out.pm`, then a byte comparison of
-  the two local files.
+- One recorded live run against a guest proves the transfer. The run holds these
+  steps, in this order:
+  - `fuguvm up`
+  - `fuguvm wait`
+  - `fuguvm put lib /root/lib`
+  - `fuguvm ssh -- find /root/lib -type f`
+  - `fuguvm get /root/lib/App/FuguVM.pm /tmp/out.pm`
+  - a byte comparison of the two local files
 - The same run proves the mode: a local executable file arrives executable, and
   `fuguvm put --mode=0600` gives mode 0600.
 - The same run proves the quoting: `fuguvm ssh -- touch '/root/a b'` creates one
   file, and `fuguvm ssh -- echo '*'` prints one asterisk.
 - The same run proves the exit code: `fuguvm ssh -- false` exits 1, and
   `fuguvm ssh -- sh -c 'exit 42'` exits 42.
-- One recorded run proves the read bound: a remote command that stays quiet for
+- One recorded run proves the read bound. A remote command that stays quiet for
   more than 10 seconds returns its whole output and its true exit code.
 - One recorded console attachment proves the terminal contract. The operator
   attaches, types `Ctrl-]` and `quit`, and the shell that follows echoes each
@@ -680,15 +697,13 @@ them.
    is one archive: write one tar file and extract it in the guest. That answer
    needs the host tar and the guest tar to agree on one format, and this plan
    cannot prove that agreement. A measured run of TEST-INTEROP-7 must decide it.
-4. **IAC-METAL-1 names `fuguvm ssh uname -m`.** That form exits 2, because the
-   option parser reads `-m`. The working form is `fuguvm ssh -- uname -m`. The
-   edit phase must not change the rule text of this workflow, so this plan
-   raises the point here. FuguVM plan 001 also names the same command in its
-   man-page example list.
-5. **`cmd_expect` still uses `localhost`.** The attach verb uses `127.0.0.1`,
-   for the reason that `cmd_ssh` records. A dual-stack host can therefore serve
-   the two verbs differently. One line would align them, and that line is a
-   behaviour change outside this plan.
+4. **A bare `fuguvm ssh uname -m` exits 2.** The option parser reads `-m` as an
+   option. The working form is `fuguvm ssh -- uname -m`. FuguVM plan 001 uses
+   the quoted form `fuguvm ssh "uname -m"`, which works today.
+5. **`cmd_expect` still uses `localhost`.** The attach verb uses the connect
+   address of the guest, for the reason that `cmd_ssh` records. A dual-stack
+   host can therefore serve the two verbs differently. One line would align
+   them, and that line is a behavior change outside this plan.
 6. **`get` copies one file.** FuguTTX `TRN-TRACES` copies "each transcript" out,
    which is one call for each file. A run that must copy a whole result
    directory needs a remote listing, and `Fugu::SSH` gives none. A caller can
