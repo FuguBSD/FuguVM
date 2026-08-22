@@ -1,0 +1,134 @@
+name: Integration
+
+# The workflow installs a complete OpenBSD guest with the tool, on a
+# GitHub runner. It proves what the unit tests cannot: the installer
+# answers, the firmware, and the architecture of the guest.
+#
+# Use explicit includes, never excludes. Only a path that shapes an
+# installation may start this workflow, because a run costs tens of
+# minutes under TCG.
+on:
+  push:
+    branches: [main]
+    paths:
+      # The tool that the job runs from the checkout
+      - "bin/*"
+      - "lib/**.pm"
+      # The expect scripts, the cache-generation file and the samples
+      - "share/fuguvm/**"
+      # The setup action installs through scripts/deps, and the tool
+      # downloads the miniroot through scripts/ftp
+      - "scripts/*"
+      - "deps/Linux.txt"
+      - ".github/workflows/integration.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "bin/*"
+      - "lib/**.pm"
+      - "share/fuguvm/**"
+      - "scripts/*"
+      - "deps/Linux.txt"
+      - ".github/workflows/integration.yml"
+  # A manual run, for example to prove the workflow itself
+  workflow_dispatch:
+
+# One installation per branch at a time. A new push cancels the
+# superseded run. A stale installation is the most expensive queue
+# item of this repository.
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      # One entry per guest architecture. Each entry names the
+      # accelerator that the tool must select on this runner. The
+      # runner is x86_64, so an arm64 guest runs under TCG.
+      matrix:
+        include:
+          - arch: arm64
+            accel: tcg
+
+    env:
+      # install.exp reads this timeout for each prompt. A TCG
+      # installation holds long silences between prompts.
+      FUGUVM_TIMEOUT: "3600"
+
+    defaults:
+      run:
+        # An explicit bash runs with pipefail. The tee pipeline below
+        # must not hide a failed exit code.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Perl
+        uses: FuguBSD/Tooling/perl/actions/setup-perl@main
+        with:
+          dependencies: runtime
+
+      # The tool installs the public key in the guest, and every SSH
+      # connection authenticates through the agent.
+      - name: Make an SSH key and start the agent
+        run: |
+          install -d -m 700 ~/.ssh
+          ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          eval "$(ssh-agent)"
+          ssh-add ~/.ssh/id_ed25519
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+
+      - name: Write the project configuration
+        run: |
+          cat > .fuguvmrc <<EOF
+          ssh_pubkey $(cat ~/.ssh/id_ed25519.pub)
+
+          vm "default" {
+              version      7.8
+              memory       2048
+              disk_size    8G
+              ssh_port     2222
+              console_port 4444
+          }
+          EOF
+
+      # The transcript is the record of each installer answer. tee
+      # keeps it for the artifact below.
+      - name: Install the guest
+        run: bin/fuguvm --verbose up 2>&1 | tee install.log
+
+      - name: Wait for SSH
+        run: bin/fuguvm wait --timeout=600
+
+      - name: Check the guest architecture
+        run: |
+          machine="$(bin/fuguvm ssh 'uname -m')"
+          echo "uname -m: $machine"
+          test "$machine" = "${{ matrix.arch }}"
+
+      - name: Check the accelerator
+        run: |
+          grep -F "Using QEMU accelerator: ${{ matrix.accel }}" install.log
+
+      - name: Stop the guest
+        run: bin/fuguvm down
+
+      # Keep the transcript also when a step fails. A failed run
+      # needs it most.
+      - name: Keep the installer transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript-${{ matrix.arch }}
+          include-hidden-files: true
+          path: |
+            install.log
+            .fuguvm/state/*/qemu.log
