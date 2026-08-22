@@ -42,8 +42,8 @@ lifecycle, the hosts, and the target design of the open work.
 The mirror proxy caches the OpenBSD sets that an install fetches.
 
 - **GST-MIRROR-1** — A mirror fetch must verify the `SHA256` manifest of the
-  release under its release key, through Fugu LIB-SIGNIFY, and a verification
-  failure must leave no file in the cache.
+  release under its release key, through Fugu LIB-SIGNIFY.
+- **GST-MIRROR-2** — A verification failure must leave no file in the cache.
 
 <a id="gst-arch"></a>
 

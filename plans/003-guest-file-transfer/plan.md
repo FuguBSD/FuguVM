@@ -67,14 +67,8 @@ an operator at the keyboard instead of a script.
 | FuguTTX    | `EVL-AGENTIC` (spec/evaluation.md)   | — (prose only) | The suite operates each guest with the `fuguvm` command, and links to no FuguVM module     |
 | FuguTTX    | `IAC-METAL` (spec/infrastructure.md) | IAC-METAL-1    | `fuguvm ssh "uname -m"` must print `amd64` and must return exit code 0                     |
 
-Every unit above exists today. This plan opened each document and verified each
-anchor. Each rule number is the next free number of its unit, and the
-specification edit set of this workflow adds it:
-
-- FuguOracle `ARCH-DEPS` holds ARCH-DEPS-1 to ARCH-DEPS-4 today.
-- FuguOracle `TEST-INTEROP` holds TEST-INTEROP-1 to TEST-INTEROP-3 today.
-- FuguPass `QA-HARNESS` holds QA-HARNESS-1 to QA-HARNESS-5 today.
-- FuguTTX `IAC-METAL` holds no numbered rule today.
+Every unit above exists today, and each cited rule stands in its sibling
+specification. The sibling registers track their own adoption of the tool.
 
 FuguTTX `TRN-TRACES` and FuguTTX `EVL-AGENTIC` are prose anchors, and the
 workflow changes their prose only. Each row therefore cites no rule.
