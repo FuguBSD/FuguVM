@@ -35,7 +35,6 @@ use Fugu::File;
 use Fugu::Log;
 use Fugu::Proxy;
 use App::FuguVM::Console;
-use App::FuguVM::Miniroot;
 
 use constant {
 	BASE_NAME         => 'base.qcow2',
@@ -91,8 +90,13 @@ sub base_path ( $self, $key )
 #	caching.
 sub key ( $self, $vm_config )
 {
+	if ( !defined $vm_config->{arch} ) {
+		warn "Cannot derive a cache key without an architecture\n";
+		return;
+	}
+
 	my $version   = _sanitize( $vm_config->{version} // '' );
-	my $arch      = _sanitize(App::FuguVM::Miniroot::ARCH);
+	my $arch      = _sanitize( $vm_config->{arch} );
 	my $disk_size = $vm_config->{disk_size} // '';
 
 	my $script = $self->_install_script;

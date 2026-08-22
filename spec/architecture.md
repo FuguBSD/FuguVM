@@ -42,5 +42,5 @@ The dependency direction is one way.
 
 ## External programs
 
-The tool drives `qemu-system-aarch64`, `qemu-img`, `expect`, `telnet`, and `ssh`
-as commands, never as libraries.
+The tool drives `qemu-system-aarch64`, `qemu-system-x86_64`, `qemu-img`,
+`expect`, `telnet`, and `ssh` as commands, never as libraries.

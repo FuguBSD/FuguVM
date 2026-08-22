@@ -22,6 +22,10 @@ code of its own. The work is split by concern:
 
 =over 4
 
+=item L<App::FuguVM::Arch>
+
+The architecture table of the supported guests.
+
 =item L<App::FuguVM::CLI>
 
 The subcommands of C<fuguvm>.

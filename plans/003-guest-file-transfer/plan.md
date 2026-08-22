@@ -689,8 +689,8 @@ them.
    needs the host tar and the guest tar to agree on one format, and this plan
    cannot prove that agreement. A measured run of TEST-INTEROP-7 must decide it.
 4. **A bare `fuguvm ssh uname -m` exits 2.** The option parser reads `-m` as an
-   option. The working form is `fuguvm ssh -- uname -m`. FuguVM plan 001 uses
-   the quoted form `fuguvm ssh "uname -m"`, which works today.
+   option. The working form is `fuguvm ssh -- uname -m`. The Integration
+   workflow uses the quoted form `fuguvm ssh "uname -m"`, which works today.
 5. **`cmd_expect` still uses `localhost`.** The attach verb uses the connect
    address of the guest, for the reason that `cmd_ssh` records. A dual-stack
    host can therefore serve the two verbs differently. One line would align

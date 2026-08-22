@@ -56,7 +56,8 @@ inputs are:
 
 =item * the OpenBSD version
 
-=item * the architecture
+=item * the architecture, from the C<arch> value of the VM
+configuration
 
 =item * the disk size
 
@@ -133,8 +134,13 @@ These methods return locations. The paths do not have to exist.
 =item key($vm_config)
 
 The method derives the cache key for a VM configuration hash. It
-returns C<undef> when it cannot read an input. The caller then has no
-key, and thus no cache.
+returns C<undef> when it cannot read an input, and when the
+configuration carries no architecture. The caller then has no key,
+and thus no cache.
+
+Two architectures give two key strings and two entry directories.
+Thus one cache holds a base image for each architecture, and neither
+entry can overwrite the other.
 
 =item lookup($key)
 

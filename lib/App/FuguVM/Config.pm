@@ -22,6 +22,7 @@ package App::FuguVM::Config;
 use Fugu::Config;
 use Fugu::File;
 use Fugu::Log;
+use App::FuguVM::Arch;
 
 # App::FuguVM::Config - the VM defaults over Fugu::Config.
 #
@@ -31,6 +32,7 @@ use Fugu::Log;
 # file, and the switch that turns the installed-image cache off.
 
 use constant {
+	DEFAULT_ARCH         => 'arm64',
 	DEFAULT_MEMORY       => 2048,
 	DEFAULT_DISK_SIZE    => '8G',
 	DEFAULT_SSH_PORT     => 2222,
@@ -98,10 +100,13 @@ sub _setting ( $self, $key )
 }
 
 # $self->load_vm($name):
-#	Return the merged configuration of one VM, or undef when no
-#	file declares it.
+#	Return the merged configuration of one VM. Return undef when
+#	no file declares it, or when a value does not validate. In the
+#	second case, error() reports the reason.
 sub load_vm ( $self, $name )
 {
+	delete $self->{error};
+
 	# First check for a VM block in the project config. Then check
 	# the global config.
 	my $block = $self->{project}->block( 'vm', $name )
@@ -125,11 +130,22 @@ sub load_vm ( $self, $name )
 
 	# Apply the defaults
 	$vm->{name}         //= $name;
+	$vm->{arch}         //= DEFAULT_ARCH;
 	$vm->{version}      //= DEFAULT_VERSION;
 	$vm->{memory}       //= DEFAULT_MEMORY;
 	$vm->{disk_size}    //= DEFAULT_DISK_SIZE;
 	$vm->{ssh_port}     //= DEFAULT_SSH_PORT;
 	$vm->{console_port} //= DEFAULT_CONSOLE_PORT;
+
+	# This loader is the boundary of the arch directive. No module
+	# downstream repeats the check.
+	if ( !App::FuguVM::Arch->new( $vm->{arch} ) ) {
+		$self->{error} =
+		    sprintf( "VM '%s': unknown arch '%s' (accepted values: %s)",
+			$name, $vm->{arch},
+			join( ', ', App::FuguVM::Arch->names ) );
+		return;
+	}
 
 	# Include ssh_pubkey from the global or project config
 	$vm->{ssh_pubkey} //= $self->ssh_pubkey;
@@ -149,6 +165,13 @@ sub load_vm ( $self, $name )
 	    : $self->image_cache;
 
 	return $vm;
+}
+
+# $self->error:
+#	Return the reason of the last failed load_vm, or undef.
+sub error ($self)
+{
+	return $self->{error};
 }
 
 sub cache_dir ($self)

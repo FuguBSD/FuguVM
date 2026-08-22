@@ -2,7 +2,7 @@
 #
 # Automated OpenBSD installation over the serial console
 #
-# Usage: install.exp <host> <port> [root_password] [proxy_url]
+# Usage: install.exp <host> <port> <root_password> <proxy_url> <arch>
 #
 
 # Use FUGUVM_TIMEOUT from the environment when it exceeds the
@@ -18,8 +18,10 @@ proc env_timeout {default} {
 
 set timeout [env_timeout 300]
 
-if {[llength $argv] < 2} {
-    puts stderr "Usage: install.exp <host> <port> \[root_password\] \[proxy_url\]"
+set usage "Usage: install.exp <host> <port> <root_password> <proxy_url> <arch>"
+
+if {[llength $argv] != 5} {
+    puts stderr $usage
     exit 1
 }
 
@@ -27,6 +29,7 @@ set host [lindex $argv 0]
 set port [lindex $argv 1]
 set root_password [lindex $argv 2]
 set proxy_url [lindex $argv 3]
+set arch [lindex $argv 4]
 
 if {$root_password eq ""} {
     set root_password "openbsd"
@@ -34,6 +37,13 @@ if {$root_password eq ""} {
 
 if {$proxy_url eq ""} {
     set proxy_url "none"
+}
+
+# The configuration loader of fuguvm validates the value, so this
+# exit guards a manual run only.
+if {$arch ne "amd64" && $arch ne "arm64"} {
+    puts stderr $usage
+    exit 1
 }
 
 log_user 1
@@ -84,7 +94,19 @@ expect {
         exp_continue
     }
     "boot>" {
-        send "\r"
+        # The arm64 machine has no display adapter, so its loader
+        # already writes to the serial port. The amd64 machine has
+        # one, so its loader must move the console to com0 before it
+        # boots the kernel.
+        if {$arch eq "amd64"} {
+            send "stty com0 115200\r"
+            expect "boot>"
+            send "set tty com0\r"
+            expect "boot>"
+            send "boot\r"
+        } else {
+            send "\r"
+        }
         exp_continue
     }
     timeout {
@@ -126,25 +148,47 @@ send "$root_password\r"
 # Start sshd
 expect "Start sshd(8)" { respond "yes" }
 
+# Only the amd64 machine has a display adapter, so only its installer
+# asks about X. The guest is headless, so xenodm stays off. The
+# installer then offers to keep the console on com0. Accept it, and
+# accept the default speed.
+if {$arch eq "amd64"} {
+    expect "started by xenodm" { respond "no" }
+    expect "Change the default console to com0?" { respond "yes" }
+    expect "Which speed should com0 use?" { respond "" }
+}
+
 # Setup a user
 expect "Setup a user?" { respond "no" }
 
 # Allow root ssh login
 expect "Allow root ssh login?" { respond "yes" }
 
-# Timezone
-expect "What timezone are you in?" { respond "UTC" }
-
-# Root disk
-expect "Which disk is the root disk?" { respond "" }
+# Timezone. The installer asks here only when its geolocation lookup
+# gave a hint. Without one, it asks after the sets are installed. One
+# block accepts both orders: answer the timezone when it arrives, and
+# move on at the root-disk prompt.
+expect {
+    "What timezone are you in?" {
+        respond "UTC"
+        exp_continue
+    }
+    "Which disk is the root disk?" { respond "" }
+}
 
 # Disk encryption: no
 expect "Encrypt the root disk" { respond "no" }
 
-# Use whole disk or GPT
+# Use the whole disk. The amd64 guest boots UEFI, so its disk needs a
+# GPT with an EFI system partition.
+if {$arch eq "amd64"} {
+    set whole_disk "g"
+} else {
+    set whole_disk "w"
+}
 expect {
-    "Use (W)hole disk" { respond "w" }
-    "whole disk" { respond "w" }
+    "Use (W)hole disk" { respond $whole_disk }
+    "whole disk" { respond $whole_disk }
 }
 
 # Auto layout
@@ -191,14 +235,19 @@ expect {
     }
 }
 
-# The installer can ask to correct the clock before it finishes.
-# Answer yes if it does. The (R)eboot? prompt marks the end of the
-# install. Choose halt instead of reboot. Then fuguvm can restart
-# from the installed disk without the miniroot attached. A single
-# expect block matches both prompts. Thus a missing time prompt never
-# stalls to the timeout.
+# The installer asks the timezone here when its geolocation lookup
+# gave no hint before the disk setup. It can also ask to correct the
+# clock before it finishes. Answer both if they arrive. The (R)eboot?
+# prompt marks the end of the install. Choose halt instead of reboot.
+# Then fuguvm can restart from the installed disk without the
+# miniroot attached. A single expect block matches every prompt. Thus
+# a missing prompt never stalls to the timeout.
 set timeout [env_timeout 900]
 expect {
+    "What timezone are you in?" {
+        respond "UTC"
+        exp_continue
+    }
     "Time appears wrong" {
         respond "yes"
         exp_continue

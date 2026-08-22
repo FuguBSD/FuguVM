@@ -26,25 +26,48 @@ use_ok('App::FuguVM::Guest');
 {
 	is(App::FuguVM::Guest::EXIT_SUCCESS(), 0, 'EXIT_SUCCESS is 0');
 	is(App::FuguVM::Guest::EXIT_ERROR(), 1, 'EXIT_ERROR is 1');
+	is(App::FuguVM::Guest::EXIT_CONFIG_ERROR(), 3,
+	    'EXIT_CONFIG_ERROR is 3');
 	is(App::FuguVM::Guest::EXIT_VM_RUNNING(), 5, 'EXIT_VM_RUNNING is 5');
 	is(App::FuguVM::Guest::EXIT_TIMEOUT(), 7, 'EXIT_TIMEOUT is 7');
 }
 
+# The configured architecture, at the boundary the loader validated
+{
+	my $vm = App::FuguVM::Guest->new(config => { arch => 'amd64' });
+	is($vm->_arch->name, 'amd64',
+	    '_arch returns the object of the configured value');
+	is($vm->_arch->qemu_binary, 'qemu-system-x86_64',
+	    'and the object carries the table');
+
+	my $broken = App::FuguVM::Guest->new(config => { arch => 'mips64' });
+	ok(!eval { $broken->_arch; 1 },
+	    '_arch dies on an unknown value: the loader is the boundary');
+	like($@, qr/unknown architecture/, 'and the death names the cause');
+}
+
 # Accelerator selection
 {
-	# --emulate always forces TCG with a named CPU model
-	my $emulated = App::FuguVM::Guest->new(emulate => 1);
-	my %args = ($emulated->_accel_args);
-	is($args{'-accel'}, 'tcg', '--emulate forces TCG');
-	is($args{'-cpu'}, App::FuguVM::Guest::TCG_CPU(),
-	    'TCG uses a named CPU model, not host passthrough');
+	# --emulate always forces TCG with the named CPU model of the
+	# architecture
+	for my $case (['arm64', 'cortex-a57'], ['amd64', 'qemu64']) {
+		my ($arch, $tcg_cpu) = @$case;
+		my $emulated = App::FuguVM::Guest->new(
+			emulate => 1,
+			config  => { arch => $arch },
+		);
+		my %args = ($emulated->_accel_args);
+		is($args{'-accel'}, 'tcg', "--emulate forces TCG for $arch");
+		is($args{'-cpu'}, $tcg_cpu,
+		    "TCG pairs with the $arch model, not host passthrough");
+	}
 
 	# Auto-selection returns a consistent accel/cpu pair
-	my $auto = App::FuguVM::Guest->new;
-	%args = ($auto->_accel_args);
+	my $auto = App::FuguVM::Guest->new(config => { arch => 'arm64' });
+	my %args = ($auto->_accel_args);
 	like($args{'-accel'}, qr/^(hvf|kvm|tcg)$/, 'known accelerator');
 	if ($args{'-accel'} eq 'tcg') {
-		is($args{'-cpu'}, App::FuguVM::Guest::TCG_CPU(),
+		is($args{'-cpu'}, 'cortex-a57',
 		    'software emulation pairs with a named CPU');
 	} else {
 		is($args{'-cpu'}, 'host',
@@ -53,6 +76,126 @@ use_ok('App::FuguVM::Guest');
 
 	# The host arch helper returns a non-empty machine string
 	ok(length(App::FuguVM::Guest::_host_arch()), 'host arch detected');
+}
+
+# The QEMU binary lookup on PATH
+{
+	my $bindir = tempdir(CLEANUP => 1);
+	local $ENV{PATH} = $bindir;
+
+	my $vm = App::FuguVM::Guest->new(config => { arch => 'amd64' });
+	is($vm->_qemu_path, undef,
+	    '_qemu_path returns undef when PATH holds no such binary');
+
+	my $stub = "$bindir/qemu-system-x86_64";
+	open my $fh, '>', $stub or die "Cannot write $stub: $!";
+	print $fh "#!/bin/sh\n";
+	close $fh;
+	chmod 0755, $stub or die "Cannot chmod $stub: $!";
+
+	is($vm->_qemu_path, $stub,
+	    '_qemu_path returns the path of an executable stub');
+
+	# up and start diagnose the absent binary with exit code 3
+	my $arm = App::FuguVM::Guest->new(config =>
+	    { name => 'default', arch => 'arm64' });
+	$arm->{log} = TestLog->new;
+	is($arm->start, App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    'start exits 3 when the QEMU binary is absent');
+	like(join("\n", @{ $arm->{log}{errors} }),
+	    qr/qemu-system-aarch64.*arm64/,
+	    'and the message names the binary and the architecture');
+	is($arm->up, App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    'up exits 3 the same way');
+}
+
+# The firmware search returns undef, or a code file that exists with
+# its variable-store template
+{
+	my $vm = App::FuguVM::Guest->new(config => { arch => 'amd64' });
+	my $firmware = $vm->_find_efi_firmware;
+	ok(!defined $firmware || -f $firmware->{code},
+	    '_find_efi_firmware returns undef or a code file that exists');
+	ok(!defined $firmware || -f $firmware->{vars},
+	    'and an amd64 result carries its variable-store template');
+}
+
+# The firmware arguments: -bios without a variable store, and two
+# pflash devices with one
+{
+	my $state_dir = tempdir(CLEANUP => 1);
+	my $vars = "$state_dir/template-vars.fd";
+	open my $fh, '>', $vars or die "Cannot write $vars: $!";
+	print $fh 'vars';
+	close $fh;
+
+	require App::FuguVM::State;
+	my $state = App::FuguVM::State->new($state_dir, 'default');
+	my $vm = App::FuguVM::Guest->new(
+	    config => { name => 'default', arch => 'amd64' },
+	    state  => $state,
+	);
+
+	is_deeply([$vm->_firmware_args({ code => '/x/code.fd' })],
+	    ['-bios', '/x/code.fd'],
+	    'a code file without a variable store boots with -bios');
+
+	my @args = $vm->_firmware_args(
+	    { code => '/x/code.fd', vars => $vars });
+	is(scalar @args, 4, 'a pair maps to two pflash devices');
+	like($args[1], qr/if=pflash.*readonly=on.*\/x\/code\.fd/,
+	    'the code device is read-only');
+	my ($copy) = $args[3] =~ /file=(.*)$/;
+	ok(-f $copy, 'the variable-store copy exists');
+	isnt($copy, $vars, 'and it is a copy, not the template');
+}
+
+# A disk belongs to one architecture: up stops when the state records
+# an other one
+{
+	require App::FuguVM::State;
+
+	my $bindir = tempdir(CLEANUP => 1);
+	my $stub = "$bindir/qemu-system-x86_64";
+	open my $fh, '>', $stub or die "Cannot write $stub: $!";
+	print $fh "#!/bin/sh\n";
+	close $fh;
+	chmod 0755, $stub or die "Cannot chmod $stub: $!";
+	local $ENV{PATH} = $bindir;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	$state->mark_installed('arm64');
+
+	my $log = TestLog->new;
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'amd64' },
+		state  => $state,
+		log    => $log,
+	);
+	is($vm->up, App::FuguVM::Guest::EXIT_ERROR(),
+	    'up stops on a disk of an other architecture');
+	like(join("\n", @{ $log->{errors} }), qr/fuguvm destroy/,
+	    'and the message names the remedy');
+	is($vm->start, App::FuguVM::Guest::EXIT_ERROR(),
+	    'start stops the same way');
+}
+
+# status reports the configured architecture
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => {
+			name => 'default', arch => 'amd64',
+			ssh_port => 2222, console_port => 4444,
+		},
+		state => $state,
+	);
+	is($vm->status->{arch}, 'amd64',
+	    'status reports the configured architecture');
 }
 
 # Bounded guest interaction: _bounded must return the code's value
@@ -130,7 +273,7 @@ SKIP: {
 
 	my $state = App::FuguVM::State->new("$root/state", 'default');
 	my $vm = App::FuguVM::Guest->new(
-		config => { name => 'default', cache_dir => "$root/cache" },
+		config => { name => 'default', arch => 'arm64', cache_dir => "$root/cache" },
 		state  => $state,
 		log    => TestLog->new,
 	);
@@ -155,7 +298,7 @@ SKIP: {
 	# Reparenting a standalone disk onto a base
 	my $other = App::FuguVM::State->new("$root/state2", 'default');
 	my $vm2 = App::FuguVM::Guest->new(
-		config => { name => 'default', cache_dir => "$root/cache" },
+		config => { name => 'default', arch => 'arm64', cache_dir => "$root/cache" },
 		state  => $other,
 		log    => TestLog->new,
 	);
@@ -179,7 +322,7 @@ SKIP: {
 	# A restore against the now-empty cache is a miss, not a crash
 	my $fresh = App::FuguVM::State->new("$root/state3", 'default');
 	my $vm3 = App::FuguVM::Guest->new(
-		config => { name => 'default', cache_dir => "$root/cache" },
+		config => { name => 'default', arch => 'arm64', cache_dir => "$root/cache" },
 		state  => $fresh,
 		log    => TestLog->new,
 	);

@@ -149,13 +149,26 @@ sub is_installed ($self)
 	return $self->{store}->get('installed') ? 1 : 0;
 }
 
-sub mark_installed ($self)
+# $self->mark_installed($arch):
+#	Record the install mark and the architecture of the installed
+#	disk. The argument is required, so no path can forget it.
+sub mark_installed ( $self, $arch )
 {
-	$self->{store}->data->{installed}    = 1;
-	$self->{store}->data->{installed_at} = time;
+	my $data = $self->{store}->data;
+	$data->{installed}      = 1;
+	$data->{installed_at}   = time;
+	$data->{installed_arch} = $arch;
 	$self->{store}->save;
 
 	return $self;
+}
+
+# $self->get_installed_arch:
+#	Return the recorded architecture of the installed disk, or
+#	undef.
+sub get_installed_arch ($self)
+{
+	return $self->{store}->get('installed_arch');
 }
 
 # Root password management. The state stores the password for the

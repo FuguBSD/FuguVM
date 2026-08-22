@@ -26,20 +26,16 @@ test cannot cover a real OpenBSD `SHA256` file and its release key. FuguVM
 proves that path against a live mirror. The acceptance list below holds that
 proof.
 
-Plan 001 is not a dependency, but the two plans touch the same lines.
-`App::FuguVM::Miniroot` holds both mirror facts today:
+`App::FuguVM::Miniroot` holds the mirror host today, and `Miniroot->new` takes
+the architecture as an argument:
 
 ```perl
-use constant {
-	CDN_HOST => 'cdn.openbsd.org',
-	ARCH     => 'arm64',
-};
+use constant { CDN_HOST => 'cdn.openbsd.org', };
 ```
 
-Plan 001 deletes `ARCH` and gives `Miniroot->new` an architecture argument. This
-plan moves both constants into a new mirror module, which takes the version and
-the architecture as arguments. Whichever plan lands second keeps the mirror
-module as the one home of the host, the version and the architecture.
+This plan moves the host into a new mirror module, which takes the version and
+the architecture as arguments. The mirror module is then the one home of the
+host, the version and the architecture.
 
 Plan 002 is not a dependency. Its `fuguvm status` gains one key here,
 `proxy_url`. The key set of `status` must stay stable, so the two plans must

@@ -31,7 +31,7 @@ phase applies.
 | [GST-LIFECYCLE](guests.md#gst-lifecycle)       | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t)                                                              |
 | [GST-HOSTS](guests.md#gst-hosts)               | done    | —       | [deps](../deps), [config.t](../t/fuguvm/config.t)                                                                                   |
 | [GST-MIRROR](guests.md#gst-mirror)             | partial | —       | The verification of GST-MIRROR-1 and GST-MIRROR-2 is absent. [Proxy.pm](../lib/App/FuguVM/Proxy.pm), [proxy.t](../t/fuguvm/proxy.t) |
-| [GST-ARCH](guests.md#gst-arch)                 | open    | —       | —                                                                                                                                   |
+| [GST-ARCH](guests.md#gst-arch)                 | done    | —       | [Arch.pm](../lib/App/FuguVM/Arch.pm), [arch.t](../t/fuguvm/arch.t), [integration.yml](../.github/workflows/integration.yml)         |
 | [GST-FLEET](guests.md#gst-fleet)               | open    | —       | —                                                                                                                                   |
 | [GST-TRANSFER](guests.md#gst-transfer)         | open    | —       | —                                                                                                                                   |
 | [GST-IMAGES](guests.md#gst-images)             | open    | —       | —                                                                                                                                   |

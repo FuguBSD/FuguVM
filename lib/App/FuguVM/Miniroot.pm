@@ -34,16 +34,20 @@ use Fugu::Process;
 # the disk that the installer produced. Neither is a cache of the
 # other.
 
-use constant {
-	CDN_HOST => 'cdn.openbsd.org',
-	ARCH     => 'arm64',
-};
+use constant { CDN_HOST => 'cdn.openbsd.org', };
 
-sub new ( $class, $cache_dir, $proxy = undef )
+# $class->new($cache_dir, $proxy, $arch):
+#	The proxy can be undef. The architecture name is required: it
+#	selects the mirror path of the miniroot.
+sub new ( $class, $cache_dir, $proxy, $arch )
 {
+	die "App::FuguVM::Miniroot needs an architecture\n"
+	    if !defined $arch;
+
 	my $self = bless {
 		cache_dir => Fugu::File->expand_tilde($cache_dir),
 		proxy     => $proxy,
+		arch      => $arch,
 	}, $class;
 
 	return $self;
@@ -150,12 +154,8 @@ sub download ( $self, $version )
 sub url ( $self, $version )
 {
 	my $filename = $self->_image_filename($version);
-	return
-	      "https://"
-	    . CDN_HOST
-	    . "/pub/OpenBSD/$version/"
-	    . ARCH
-	    . "/$filename";
+	return "https://" . CDN_HOST
+	    . "/pub/OpenBSD/$version/$self->{arch}/$filename";
 }
 
 # $self->_image_filename($version):

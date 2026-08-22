@@ -6,7 +6,7 @@ App::FuguVM::Miniroot - the OpenBSD miniroot image
 
     use App::FuguVM::Miniroot;
 
-    my $image = App::FuguVM::Miniroot->new($cache_dir, $proxy);
+    my $image = App::FuguVM::Miniroot->new($cache_dir, $proxy, 'arm64');
     my $path  = $image->ensure('7.8')
         or die "cannot get the miniroot for 7.8\n";
 
@@ -25,10 +25,11 @@ download the image again.
 
 =head2 new
 
-    App::FuguVM::Miniroot->new($cache_dir, $proxy)
+    App::FuguVM::Miniroot->new($cache_dir, $proxy, $arch)
 
-The proxy is optional. Without one the module can find a cached image
-but cannot download a missing one.
+The proxy can be C<undef>. Without one the module can find a cached
+image but cannot download a missing one. The architecture name is
+required: a call without it is a programming error.
 
 =head2 path, ensure, download
 
@@ -41,7 +42,11 @@ a hundred megabytes and an operator who waits needs to see it move.
 
 =head2 url
 
-C<url> is the mirror URL of a version.
+C<url> is the mirror URL of a version. The path holds the
+architecture of the constructor:
+F<< /pub/OpenBSD/<version>/<arch>/miniroot<version>.img >>. The file
+name is the same for both architectures; only the path segment
+differs.
 
 =head1 SEE ALSO
 

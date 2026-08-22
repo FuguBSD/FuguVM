@@ -32,8 +32,9 @@ use App::FuguVM::State;
 use App::FuguVM::Guest;
 
 # The generic exit codes come from Fugu::CLI. Only the codes that
-# mean something to a VM are defined here, and App::FuguVM::Guest uses them
-# from here rather than defining the same numbers again.
+# mean something to a VM are defined here. App::FuguVM::Guest defines
+# the codes that it returns itself: this module loads it, and the
+# reverse import would be a cycle.
 use constant {
 	EXIT_SUCCESS      => Fugu::CLI::EXIT_SUCCESS,
 	EXIT_ERROR        => Fugu::CLI::EXIT_ERROR,
@@ -177,7 +178,7 @@ sub run ( $class, @argv )
 				my $vm = $self->_load_vm(
 					no_cache => $cli->option('no-cache')
 					    // 0 )
-				    or return EXIT_VM_NOT_FOUND;
+				    or return $self->{load_exit};
 				my @verb_args =
 				    $method eq 'stop'
 				    ? ( $cli->option('force') // 0 )
@@ -267,11 +268,20 @@ sub _prepare ( $self, $cli, $entry )
 	return;
 }
 
+# $self->_load_vm(%opts):
+#	Load the invoked VM, or return undef with the exit code in
+#	$self->{load_exit}. An unknown configuration value gives
+#	EXIT_CONFIG_ERROR. A VM that no file declares gives
+#	EXIT_VM_NOT_FOUND.
 sub _load_vm ( $self, %opts )
 {
 	my $vm_config = $self->{config}->load_vm( $self->{vm_name} );
 	if ( !defined $vm_config ) {
-		$self->{log}->error("VM '$self->{vm_name}' not found");
+		my $reason = $self->{config}->error;
+		$self->{load_exit} =
+		    defined $reason ? EXIT_CONFIG_ERROR : EXIT_VM_NOT_FOUND;
+		$self->{log}
+		    ->error( $reason // "VM '$self->{vm_name}' not found" );
 		return;
 	}
 
@@ -287,7 +297,7 @@ sub _load_vm ( $self, %opts )
 # Show the VM status
 sub cmd_status ( $self, $cli, @args )
 {
-	my $vm = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm = $self->_load_vm or return $self->{load_exit};
 
 	$self->_dump_sorted( $vm->status );
 	return EXIT_SUCCESS;
@@ -308,7 +318,7 @@ sub _dump_sorted ( $self, $hash )
 # Open an SSH session into the VM, or run a command
 sub cmd_ssh ( $self, $cli, @args )
 {
-	my $vm = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm = $self->_load_vm or return $self->{load_exit};
 
 	# The connection uses the SSH agent for authentication. Connect
 	# over IPv4: QEMU forwards the guest SSH port on 127.0.0.1 only.
@@ -334,7 +344,7 @@ sub cmd_ssh ( $self, $cli, @args )
 # Show the console connection info
 sub cmd_console ( $self, $cli, @args )
 {
-	my $vm   = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm   = $self->_load_vm or return $self->{load_exit};
 	my $port = $vm->console_port;
 	$self->{log}->info("Connect with: telnet localhost $port");
 	$self->{log}->info("type: telnet");
@@ -352,7 +362,7 @@ sub cmd_expect ( $self, $cli, @args )
 		return EXIT_INVALID_ARGS;
 	}
 
-	my $vm     = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm     = $self->_load_vm or return $self->{load_exit};
 	my $expect = App::FuguVM::Console->new(
 		host => 'localhost',
 		port => $vm->console_port,
@@ -373,7 +383,7 @@ sub cmd_wait ( $self, $cli, @args )
 		return EXIT_INVALID_ARGS;
 	}
 
-	my $vm = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm = $self->_load_vm or return $self->{load_exit};
 
 	if ( !$vm->wait_ssh($timeout) ) {
 		$self->{log}->error("Timeout waiting for SSH");
@@ -666,7 +676,7 @@ sub cmd_snapshot ( $self, $cli, @args )
 #	command refuses a running VM and does not copy it.
 sub _snapshot_save ( $self, $cache, $name )
 {
-	my $vm = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm = $self->_load_vm or return $self->{load_exit};
 
 	if ( $vm->is_running ) {
 		$self->{log}->error("Stop the VM before saving a snapshot");
@@ -724,7 +734,7 @@ sub _snapshot_save ( $self, $cache, $name )
 #	before its first 'up'.
 sub _snapshot_restore ( $self, $cache, $name )
 {
-	my $vm    = $self->_load_vm or return EXIT_VM_NOT_FOUND;
+	my $vm    = $self->_load_vm or return $self->{load_exit};
 	my $state = $self->{state};
 
 	if ( $vm->is_running ) {
@@ -760,7 +770,7 @@ sub _snapshot_restore ( $self, $cache, $name )
 	# Reseed what the disk embodies. The next 'fuguvm up' reconciles
 	# a checkout whose SSH key differs from the saved one.
 	my $meta = $found->{meta};
-	$state->mark_installed;
+	$state->mark_installed( $vm_config->{arch} );
 	$state->set_root_password( $meta->{root_password} )
 	    if defined $meta->{root_password};
 	$state->mark_ssh_key_installed( $meta->{installed_ssh_pubkey} )
@@ -954,6 +964,7 @@ EOF
 # Default OpenBSD VM
 
 name = openbsd-default
+arch = arm64
 version = 7.8
 memory = 2048
 disk_size = 8G

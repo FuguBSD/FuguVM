@@ -4,30 +4,13 @@
 
 Proposed. Implements: GST-IMAGES.
 
-This plan depends on plan 001,
-[`plans/001-guest-architecture/plan.md`](../001-guest-architecture/plan.md). A
-Scaleway import needs an amd64 guest that boots under UEFI, with the loader at
-`\EFI\Boot\bootx64.efi`. FuguTTX `IAC-HOSTS` states that requirement, and it
-states the reason: "Scaleway rejects legacy BIOS". The tool cannot build such a
-guest today. `App::FuguVM::Guest` fixes the machine to one architecture:
-
-```perl
-	QEMU_BINARY    => 'qemu-system-aarch64',
-```
-
-`_find_efi_firmware` matches that choice. It searches six locations, and every
-one of them is an aarch64 file: five absolute paths from
-`/opt/homebrew/share/qemu/edk2-aarch64-code.fd` to
-`/usr/share/qemu/edk2-aarch64-code.fd`, and then one glob:
-
-```perl
-	my @glob_paths =
-	    glob('/opt/homebrew/Cellar/qemu/*/share/qemu/edk2-aarch64-code.fd');
-```
-
-Plan 001 adds the `arch` directive, the amd64 machine, the x86 EFI firmware list
-and the accelerator rule. This plan builds on that work. An arm64 export stays
-useful for a FuguBSD developer, but no Scaleway host can boot it.
+This plan builds on the `arch` directive of
+[GST-ARCH](../../spec/guests.md#gst-arch). A Scaleway import needs an amd64
+guest that boots under UEFI, with the loader at `\EFI\Boot\bootx64.efi`. FuguTTX
+`IAC-HOSTS` states that requirement, and it states the reason: "Scaleway rejects
+legacy BIOS". The tool builds such a guest: `arch amd64` selects the amd64
+machine, the x86 EFI firmware, and the accelerator. An arm64 export stays useful
+for a FuguBSD developer, but no Scaleway host can boot it.
 
 Plan 002 is not a dependency. Two of its changes help this work, and this plan
 names each one where it applies. The two changes are the lock around the first
@@ -138,7 +121,7 @@ Out of scope:
   `Fugu::Signify`, and plan 005 consumes it for the mirror. No consumer asks for
   a signed image export today.
 - An `--arch` option on the export. A disk belongs to one architecture for its
-  whole life, and plan 001 states that rule.
+  whole life, and the disk guard of `App::FuguVM::Guest` enforces that rule.
 - A conversion to VMDK or to VHD. Scaleway takes a qcow2 for the Instance route
   and a raw image for the Elastic Metal route, and `IAC-HOSTS` names both.
 
@@ -221,8 +204,8 @@ Out of scope:
 
 - **The record change rotates every key one time.** The record gains an
   `install_mode` input, so each existing key changes once, and each guest
-  installs once more. That cost is correct and small. Plan 001 already rotates
-  the arm64 key in the same release, because it changes `install.exp`.
+  installs once more. That cost is correct and small. The `arch` change rotated
+  every key the same way, because it changed `install.exp`.
   `share/fuguvm/cache-generation` must not change: the record change rotates the
   key by itself.
 
@@ -511,12 +494,12 @@ does after a local install.
 `IAC-HOSTS` states four requirements on a project-built image. Each one has one
 owner.
 
-| Requirement                                                        | Who meets it                   | How                                                                                                                                                                                                                                                |
-| ------------------------------------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UEFI boot, with a loader at `\EFI\Boot\bootx64.efi`                | The tool and the response file | Plan 001 gives the amd64 machine and the x86 EFI firmware. The response file must answer the disk-layout question with the whole-disk GPT choice. The installer then makes the EFI system partition, and installboot(8) writes the loader into it. |
-| A full disk image, not an ISO and not a root file system           | The tool                       | `fuguvm image export` converts the whole base disk. The image holds the partition table, the EFI system partition and every OpenBSD partition. `--format=raw` writes the form that the Elastic Metal route needs.                                  |
-| A root device set by DUID                                          | The OpenBSD installer          | The installer writes DUID entries into `/etc/fstab`. The tool must not change them, and the response file must not answer over them. One acceptance step reads `/etc/fstab` in the guest.                                                          |
-| An `rc.local` that reads `http://169.254.42.42/conf` with `ftp(1)` | The response file              | The response file must name a `siteXX.tgz` set that carries the file, or an `install.site` script that writes it. The tool copies no file into the guest, and the exported base disk holds only what the installer wrote.                          |
+| Requirement                                                        | Who meets it                   | How                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UEFI boot, with a loader at `\EFI\Boot\bootx64.efi`                | The tool and the response file | The `arch amd64` directive gives the amd64 machine and the x86 EFI firmware. The response file must answer the disk-layout question with the whole-disk GPT choice. The installer then makes the EFI system partition, and installboot(8) writes the loader into it. |
+| A full disk image, not an ISO and not a root file system           | The tool                       | `fuguvm image export` converts the whole base disk. The image holds the partition table, the EFI system partition and every OpenBSD partition. `--format=raw` writes the form that the Elastic Metal route needs.                                                    |
+| A root device set by DUID                                          | The OpenBSD installer          | The installer writes DUID entries into `/etc/fstab`. The tool must not change them, and the response file must not answer over them. One acceptance step reads `/etc/fstab` in the guest.                                                                            |
+| An `rc.local` that reads `http://169.254.42.42/conf` with `ftp(1)` | The response file              | The response file must name a `siteXX.tgz` set that carries the file, or an `install.site` script that writes it. The tool copies no file into the guest, and the exported base disk holds only what the installer wrote.                                            |
 
 The last row carries an open question. The tool serves the response file and no
 other file, so a site set needs its own location. Open question 3 names the
@@ -528,10 +511,10 @@ fallback.
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `load_vm($name)`        | Resolve and validate `autoinstall`, `base_disk` and `root_password_file`. Derive `install_mode`. Return `undef` and record the reason on any invalid value or contradiction. |
 | `_resolve_path($value)` | A new private method. Expand a tilde, then make a relative path absolute against the project root.                                                                           |
-| `error`                 | The accessor of plan 001. This plan reports every new reason through it.                                                                                                     |
+| `error`                 | The existing accessor. This plan reports every new reason through it.                                                                                                        |
 
-`App::FuguVM::CLI` reads the reason through the `load_exit` field of plan 001,
-so an invalid directive gives 3 and an undeclared guest still gives 4.
+`App::FuguVM::CLI` reads the reason through its existing `load_exit` field, so
+an invalid directive gives 3 and an undeclared guest still gives 4.
 
 The `install_mode` value of the returned hash is `expect`, `autoinstall` or
 `import`. Every module downstream reads that one field, and no module compares
@@ -855,9 +838,10 @@ PID file.
    working disk onto the base. This plan does not add that option, and no
    consumer asks for it yet.
 4. **The whole-disk GPT answer.** The response file must select a GPT layout, so
-   the installer makes the EFI system partition. The exact question text and the
-   exact answer word must come from a transcript. Plan 001 carries the same open
-   question for its expect script, and one transcript can close both.
+   the installer makes the EFI system partition. The expect installer answers
+   the question `Use (W)hole disk MBR, whole disk (G)PT or (E)dit?` with `g`,
+   and a recorded transcript proves it. The autoinstall(8) form of the same
+   answer must come from a test of the response file.
 5. **The password file of a published image.** The plan gives the consuming host
    the password through `root_password_file`. A stack that prefers no shared
    password must bake an authorized key into the image, and must then leave

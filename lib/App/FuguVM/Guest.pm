@@ -25,6 +25,7 @@ use v5.36;
 
 package App::FuguVM::Guest;
 
+use App::FuguVM::Arch;
 use App::FuguVM::Miniroot;
 use App::FuguVM::DiskCache;
 use App::FuguVM::Disk;
@@ -38,19 +39,14 @@ use Fugu::SSH;
 use Fugu::Timeout;
 
 use constant {
-	EXIT_SUCCESS    => 0,
-	EXIT_ERROR      => 1,
-	EXIT_VM_RUNNING => 5,
-	EXIT_TIMEOUT    => 7,
+	EXIT_SUCCESS      => 0,
+	EXIT_ERROR        => 1,
+	EXIT_CONFIG_ERROR => 3,
+	EXIT_VM_RUNNING   => 5,
+	EXIT_TIMEOUT      => 7,
 
-	# Fixed configuration for OpenBSD arm64 guests
-	QEMU_BINARY    => 'qemu-system-aarch64',
 	MEMORY_DEFAULT => '1G',
 	CPU_COUNT      => 2,
-
-	# The guest CPU model under TCG emulation. TCG does not use host
-	# passthrough.
-	TCG_CPU => 'cortex-a57',
 };
 
 sub new ( $class, %args )
@@ -72,6 +68,12 @@ sub up ($self)
 	my $config = $self->{config};
 	my $state  = $self->{state};
 	my $log    = $self->{log};
+
+	# The QEMU binary of the architecture must be on PATH before
+	# any other work starts.
+	return EXIT_CONFIG_ERROR if !$self->_require_qemu;
+
+	return EXIT_ERROR if !$self->_check_installed_arch;
 
 	# Check if the VM already runs
 	if ( $self->_is_running ) {
@@ -148,8 +150,8 @@ sub up ($self)
 
 	if ( !$state->is_installed ) {
 		$log->info("Checking OpenBSD image...");
-		my $image =
-		    App::FuguVM::Miniroot->new( $self->_cache_dir, $proxy );
+		my $image = App::FuguVM::Miniroot->new( $self->_cache_dir,
+			$proxy, $config->{arch} );
 		$image_path = $image->ensure( $config->{version} );
 
 		if ( !defined $image_path ) {
@@ -224,7 +226,7 @@ sub up ($self)
 			return EXIT_ERROR;
 		}
 
-		$state->mark_installed;
+		$state->mark_installed( $config->{arch} );
 		$log->info("Installation complete");
 
 		# Stop the VM gracefully through QMP. The image cache
@@ -372,7 +374,7 @@ sub _cache_restore ( $self, $cache, $key )
 	# that the installer would have written comes from the metadata
 	# of the base. The later SSH key install authenticates with the
 	# root password. That password is baked into the image.
-	$state->mark_installed;
+	$state->mark_installed( $config->{arch} );
 	my $password = $hit->{meta}{root_password};
 	$state->set_root_password($password) if defined $password;
 	$state->data->{cached_from} = $key;
@@ -507,6 +509,10 @@ sub start ($self)
 	my $log    = $self->{log};
 	my $config = $self->{config};
 
+	return EXIT_CONFIG_ERROR if !$self->_require_qemu;
+
+	return EXIT_ERROR if !$self->_check_installed_arch;
+
 	if ( $self->_is_running ) {
 		$log->error("VM '$config->{name}' is already running");
 		return EXIT_VM_RUNNING;
@@ -598,6 +604,7 @@ sub status ($self)
 		name  => $config->{name},
 		state => $running ? ( $qemu_status // 'running' ) : 'stopped',
 		pid   => $pid,
+		arch  => $config->{arch},
 		ssh_port     => $config->{ssh_port},
 		console_port => $config->{console_port},
 		installed    => $state->is_installed ? 1 : 0,
@@ -913,23 +920,32 @@ sub _start_qemu ( $self, $boot_image = undef )
 {
 	my $config = $self->{config};
 	my $state  = $self->{state};
+	my $arch   = $self->_arch;
 
-	my @cmd = (QEMU_BINARY);
+	my @cmd = ( $arch->qemu_binary );
 
-	# Set the machine type for arm64. Select the accelerator by the
-	# host capability.
-	push @cmd, '-M', 'virt,highmem=off';
+	# Set the machine type of the architecture. Select the
+	# accelerator by the host capability.
+	push @cmd, '-M', $arch->machine;
 	push @cmd, $self->_accel_args;
 
 	# Memory and CPU
 	push @cmd, '-m',   $config->{memory} // MEMORY_DEFAULT;
 	push @cmd, '-smp', CPU_COUNT;
 
-	# EFI firmware for arm64
-	my $bios = $self->_find_efi_firmware;
-	if ( defined $bios ) {
-		push @cmd, '-bios', $bios;
+	# EFI firmware of the architecture. Both machines boot through
+	# EFI, so a start without a firmware file cannot work. Fail
+	# with a message rather than boot into the wrong firmware.
+	my $firmware = $self->_find_efi_firmware;
+	if ( !defined $firmware ) {
+		$self->{log}->error(
+			sprintf( "No EFI firmware for %s guests found",
+				$self->_arch->name ) );
+		return;
 	}
+	my @args = $self->_firmware_args($firmware);
+	return unless @args;
+	push @cmd, @args;
 
 	# The main disk with the safe cache mode. The writethrough mode
 	# syncs on each write.
@@ -1065,31 +1081,93 @@ sub _dump_qemu_log ( $self, $log_file )
 }
 
 # $self->_accel_args():
-#	Pick the QEMU accelerator for the host. Use HVF on macOS. Use
-#	KVM on aarch64 Linux hosts with /dev/kvm. Use TCG software
-#	emulation in the other cases, or when --emulate was given. Host
-#	CPU passthrough is only valid with hardware acceleration. TCG
-#	needs a named model.
+#	Pick the QEMU accelerator for the host. Use KVM on Linux with
+#	a writable /dev/kvm, and HVF on Darwin, when the host machine
+#	runs the instruction set of the guest. Use TCG software
+#	emulation in every other case, or when --emulate was given.
+#	Host CPU passthrough is only valid with hardware acceleration.
+#	TCG needs the named model of the architecture.
 sub _accel_args ($self)
 {
-	my $accel;
-	if ( $self->{emulate} ) {
-		$accel = 'tcg';
-	}
-	elsif ( $^O eq 'darwin' ) {
-		$accel = 'hvf';
-	}
-	elsif ( $^O eq 'linux' && -w '/dev/kvm' && _host_arch() eq 'aarch64' ) {
-		$accel = 'kvm';
-	}
-	else {
-		$accel = 'tcg';
-	}
+	my $arch = $self->_arch;
+	my $accel =
+	    $self->{emulate}
+	    ? 'tcg'
+	    : $arch->accelerator( $^O, _host_arch(), -w '/dev/kvm' ? 1 : 0 );
 
 	$self->{log}->debug("Using QEMU accelerator: $accel")
 	    if $self->{log};
 
-	return ( '-accel', $accel, '-cpu', $accel eq 'tcg' ? TCG_CPU : 'host' );
+	return ( '-accel', $accel,
+		'-cpu', $accel eq 'tcg' ? $arch->tcg_cpu : 'host' );
+}
+
+# $self->_arch:
+#	Return the App::FuguVM::Arch object of the configured value,
+#	and cache it. The configuration loader is the boundary of the
+#	directive, so an unknown value here is a programming error.
+sub _arch ($self)
+{
+	my $name = $self->{config}{arch};
+
+	$self->{arch} //= App::FuguVM::Arch->new($name)
+	    // die 'unknown architecture: ' . ( $name // '(none)' ) . "\n";
+
+	return $self->{arch};
+}
+
+# $self->_qemu_path:
+#	Return the path of the QEMU binary of the architecture on
+#	PATH, or undef.
+sub _qemu_path ($self)
+{
+	my $binary = $self->_arch->qemu_binary;
+
+	for my $dir ( split /:/, $ENV{PATH} // '' ) {
+		next if $dir eq '';
+		my $path = "$dir/$binary";
+		return $path if -f $path && -x $path;
+	}
+
+	return;
+}
+
+# $self->_require_qemu:
+#	Diagnose an absent QEMU binary, once for up and start. The
+#	message names the binary and the architecture.
+sub _require_qemu ($self)
+{
+	return 1 if defined $self->_qemu_path;
+
+	my $arch = $self->_arch;
+	$self->{log}->error(
+		sprintf(
+			"QEMU binary '%s' for %s guests is not on PATH",
+			$arch->qemu_binary, $arch->name
+		) );
+
+	return 0;
+}
+
+# $self->_check_installed_arch:
+#	Report if the configured architecture matches the installed
+#	disk, once for up and start. A disk belongs to one
+#	architecture, so a changed directive must not start the wrong
+#	QEMU on an existing disk. An absent record cannot prove a
+#	difference, so the check passes.
+sub _check_installed_arch ($self)
+{
+	my $config = $self->{config};
+
+	my $installed = $self->{state}->get_installed_arch;
+	return 1 if !defined $installed || $installed eq $config->{arch};
+
+	$self->{log}->error(
+"The disk of '$config->{name}' holds an $installed installation, not $config->{arch}"
+	);
+	$self->{log}->error("Run 'fuguvm destroy' to rebuild the VM.");
+
+	return 0;
 }
 
 # _host_arch():
@@ -1101,26 +1179,56 @@ sub _host_arch ()
 	return $uname[4] // '';
 }
 
+# $self->_find_efi_firmware:
+#	Return the firmware of the architecture as { code, vars }, or
+#	undef. The vars entry is the variable-store template beside
+#	the code file. It is undef when -bios boots the code file
+#	alone. A code file without its template is not usable, so the
+#	search walks on.
 sub _find_efi_firmware ($self)
 {
-	my @paths = (
-		'/opt/homebrew/share/qemu/edk2-aarch64-code.fd',
-		'/usr/local/share/qemu/edk2-aarch64-code.fd',
-		'/usr/share/qemu-efi-aarch64/QEMU_EFI.fd',
-		'/usr/share/AAVMF/AAVMF_CODE.fd',
-		'/usr/share/qemu/edk2-aarch64-code.fd',
-	);
+	my $arch = $self->_arch;
 
-	for my $path (@paths) {
-		return $path if -f $path;
+	my @candidates = $arch->firmware_paths;
+	push @candidates, glob( $arch->firmware_glob );
+
+	for my $code (@candidates) {
+		next unless -f $code;
+
+		my $vars = $arch->firmware_vars_path($code);
+		next if defined $vars && !-f $vars;
+
+		return { code => $code, vars => $vars };
 	}
 
-	# Try a glob for the versioned Homebrew paths
-	my @glob_paths =
-	    glob('/opt/homebrew/Cellar/qemu/*/share/qemu/edk2-aarch64-code.fd');
-	return $glob_paths[0] if @glob_paths;
-
 	return;
+}
+
+# $self->_firmware_args($firmware):
+#	Return the QEMU arguments for the firmware, or an empty list
+#	on failure. A code file without a variable store boots with
+#	-bios. A code file with one boots through two pflash devices:
+#	the code read-only, and a fresh copy of the variable-store
+#	template. The copy is throwaway state, so every start makes it
+#	again.
+sub _firmware_args ( $self, $firmware )
+{
+	my $code = $firmware->{code};
+	my $vars = $firmware->{vars};
+
+	return ( '-bios', $code ) if !defined $vars;
+
+	my $copy = $self->{state}->vm_state_dir . '/efivars.fd';
+	require File::Copy;
+	unless ( File::Copy::copy( $vars, $copy ) ) {
+		$self->{log}->error("Cannot copy $vars to $copy: $!");
+		return;
+	}
+
+	return (
+		'-drive', "if=pflash,format=raw,readonly=on,file=$code",
+		'-drive', "if=pflash,format=raw,file=$copy",
+	);
 }
 
 # $self->_cache_dir:

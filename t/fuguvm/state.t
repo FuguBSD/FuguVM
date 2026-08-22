@@ -116,15 +116,21 @@ use_ok('App::FuguVM::State');
 {
     my $tmpdir = tempdir(CLEANUP => 1);
     my $state = App::FuguVM::State->new($tmpdir, 'test');
-    
+
     ok(!$state->is_installed, 'Not installed initially');
-    
-    $state->mark_installed;
+    is($state->get_installed_arch, undef,
+	'a fresh state records no architecture');
+
+    $state->mark_installed('arm64');
     ok($state->is_installed, 'Installed after mark_installed');
-    
+    is($state->get_installed_arch, 'arm64',
+	'mark_installed records the architecture');
+
     # Reload the state and make sure that the value persists
     my $state2 = App::FuguVM::State->new($tmpdir, 'test');
     ok($state2->is_installed, 'Installation state persisted');
+    is($state2->get_installed_arch, 'arm64',
+	'the architecture persists across a reload');
 }
 
 # Test disk paths

@@ -24,6 +24,7 @@ directory and one in the project root. The project file wins.
     default_vm default
 
     vm "default" {
+        arch         arm64
         version      7.8
         memory       2048
         disk_size    8G
@@ -57,16 +58,27 @@ root without a match.
 
     my $vm = $config->load_vm($name);
 
-Return the merged configuration of one VM as a hash reference, or
-C<undef> when no file declares it.
+Return the merged configuration of one VM as a hash reference. Return
+C<undef> when no file declares it, or when a value does not validate.
+In the second case, C<error> reports the reason.
 
-The method applies the defaults for C<version>, C<memory>,
+The method applies the defaults for C<arch>, C<version>, C<memory>,
 C<disk_size>, C<ssh_port> and C<console_port>, and folds in
 C<ssh_pubkey> and C<cache_dir> from the enclosing configuration.
+
+C<arch> selects the guest architecture: C<amd64> or C<arm64>. The
+default is C<arm64>. The comparison is case sensitive, so C<AMD64> is
+an unknown value. This loader is the boundary of the directive: it
+validates the value one time, and no module downstream repeats the
+check.
 
 C<cache_dir> is folded in on purpose. Without it, C<fuguvm up> would
 write its images under C<$HOME> while the cache subcommands worked on
 a different tree.
+
+=head2 error
+
+Return the reason of the last failed C<load_vm>, or C<undef>.
 
 =head2 cache_dir, state_dir, default_vm, ssh_pubkey
 
