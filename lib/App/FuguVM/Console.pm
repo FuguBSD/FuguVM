@@ -92,6 +92,7 @@ sub run_install ( $self, $config )
 		$script,
 		$config->{root_password} // 'openbsd',
 		$config->{proxy_url}     // 'none',
+		$config->{arch},
 	);
 }
 

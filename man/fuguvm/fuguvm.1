@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 7 2026 $
+.Dd $Mdocdate: August 22 2026 $
 .Dt FUGUVM 1
 .Os
 .Sh NAME
@@ -43,8 +43,25 @@ You need only one command to go from nothing to a machine that accepts
 .Xr ssh 1 .
 A second run of the command does nothing.
 .Pp
-The guest architecture is fixed:
-every VM is an arm64 (aarch64) machine.
+The
+.Ar arch
+directive of a VM configuration selects the guest architecture:
+.Cm amd64
+or
+.Cm arm64 .
+The default is
+.Cm arm64 .
+The value selects the QEMU binary,
+the machine type,
+the firmware,
+the installer answers,
+and the image-cache key.
+A disk belongs to one architecture for its whole life:
+after a change of the directive,
+rebuild the VM with
+.Cm destroy
+and
+.Cm up .
 .Pp
 The host does not have to run
 .Ox .
@@ -101,11 +118,13 @@ Use TCG software emulation,
 not hardware acceleration.
 Without this flag,
 .Nm
-selects the accelerator automatically:
-HVF on macOS,
-KVM on aarch64 Linux hosts with
+selects the accelerator automatically.
+It selects KVM or HVF only when the host machine runs the
+instruction set of the guest.
+KVM serves Linux hosts with a writable
 .Pa /dev/kvm ,
-and TCG on all other hosts.
+and HVF serves Darwin hosts.
+It selects TCG in every other case.
 .It Fl h , Fl Fl help
 Show the usage message.
 .El
@@ -417,7 +436,8 @@ Project configuration:
 .Ar image_cache .
 .It Pa .fuguvm/vms/ Ns Ar name Ns Pa .conf
 Per-VM configuration:
-.Ar name , version , memory , disk_size , ssh_port , console_port .
+.Ar name , arch , version , memory , disk_size , ssh_port ,
+.Ar console_port .
 .It Pa .fuguvm/state/
 Runtime state
 .Pq PID files, sockets, disk images .
@@ -473,6 +493,10 @@ Invalid arguments.
 Configuration error, or not in an
 .Nm
 project.
+An unknown
+.Ar arch
+value and an absent QEMU binary for the architecture also give this
+code.
 .It 4
 VM not found.
 .It 5
@@ -507,6 +531,24 @@ OpenBSD openbsd-default.my.domain 7.8 GENERIC arm64
 Operate on a VM other than the default:
 .Bd -literal -offset indent
 $ fuguvm --vm minimal up
+.Ed
+.Pp
+Define an amd64 VM in
+.Pa .fuguvmrc
+and verify its architecture:
+.Bd -literal -offset indent
+vm "openbsd-amd64" {
+	arch         amd64
+	version      7.8
+	memory       2048
+	disk_size    8G
+	ssh_port     2222
+	console_port 4444
+}
+
+$ fuguvm --vm openbsd-amd64 up
+$ fuguvm --vm openbsd-amd64 ssh "uname -m"
+amd64
 .Ed
 .Sh SEE ALSO
 .Xr expect 1 ,

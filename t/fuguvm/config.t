@@ -107,6 +107,49 @@ is(App::FuguVM::Config::DEFAULT_VERSION(), '7.8', 'DEFAULT_VERSION is 7.8');
     my $config = App::FuguVM::Config->new($tmpdir);
     my $vm = $config->load_vm('nonexistent');
     is($vm, undef, 'load_vm returns undef for missing VM');
+    is($config->error, undef, 'a missing VM is not a validation error');
+}
+
+# The arch directive: the default, both values, both spellings, and
+# the validation at the configuration boundary
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"plain\" {\n";
+    print $fh "    memory 2048\n";
+    print $fh "}\n";
+    print $fh "vm \"intel\" {\n";
+    print $fh "    arch amd64\n";
+    print $fh "}\n";
+    print $fh "vm \"arm\" {\n";
+    print $fh "    arch = arm64\n";
+    print $fh "}\n";
+    print $fh "vm \"broken\" {\n";
+    print $fh "    arch riscv64\n";
+    print $fh "}\n";
+    close $fh;
+
+    my $config = App::FuguVM::Config->new($tmpdir);
+
+    is(App::FuguVM::Config::DEFAULT_ARCH(), 'arm64',
+	'DEFAULT_ARCH is arm64');
+    is($config->load_vm('plain')->{arch}, 'arm64',
+	'arch defaults to arm64 when the block omits it');
+    is($config->load_vm('intel')->{arch}, 'amd64',
+	'arch amd64 loads in the key value form');
+    is($config->load_vm('arm')->{arch}, 'arm64',
+	'arch arm64 loads in the key = value form');
+
+    is($config->load_vm('broken'), undef,
+	'an unknown arch value makes load_vm return undef');
+    like($config->error, qr/riscv64/, 'error names the value');
+    like($config->error, qr/amd64.*arm64/,
+	'error names the two accepted values');
+
+    ok(defined $config->load_vm('plain'), 'a later load succeeds');
+    is($config->error, undef, 'and error returns undef after it');
 }
 
 # The resolved cache_dir reaches the per-VM config. Thus `fuguvm up`

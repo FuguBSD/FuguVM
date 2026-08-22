@@ -22,6 +22,7 @@ my $HAS_QEMU_IMG = defined qx{sh -c 'command -v qemu-img 2>/dev/null'}
 
 my %CONFIG = (
 	name         => 'default',
+	arch         => 'arm64',
 	version      => '7.8',
 	disk_size    => '8G',
 	memory       => 2048,
@@ -70,6 +71,36 @@ my %CONFIG = (
 
 	my %older = ( %CONFIG, version => '7.7' );
 	isnt( $cache->key( \%older ), $key, 'version rotates the key' );
+}
+
+# The architecture comes from the VM configuration, and it separates
+# the entries of the two architectures.
+{
+	my $tmp   = tempdir( CLEANUP => 1 );
+	my $cache = App::FuguVM::DiskCache->new($tmp);
+
+	my %amd64 = ( %CONFIG, arch => 'amd64' );
+	my $amd64_key = $cache->key( \%amd64 );
+	like( $amd64_key, qr/^7\.8-amd64-[0-9a-f]{8}$/,
+		'the amd64 key is <version>-amd64-<hash8>' );
+
+	my $arm64_key = $cache->key( \%CONFIG );
+	isnt( $amd64_key, $arm64_key,
+		'the keys of the two architectures differ' );
+	isnt(
+		$cache->entry_dir($amd64_key),
+		$cache->entry_dir($arm64_key),
+		'so neither entry can overwrite the other'
+	);
+
+	my %bare = %CONFIG;
+	delete $bare{arch};
+	my $missing = do {
+		local $SIG{__WARN__} = sub { };
+		$cache->key( \%bare );
+	};
+	is( $missing, undef,
+		'a configuration without an architecture yields no key' );
 }
 
 # The installer script and the generation counter rotate the key.

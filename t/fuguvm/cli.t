@@ -165,6 +165,44 @@ SKIP: {
     is($result2, 0, 'second init (idempotent) returns success');
 }
 
+# Init writes the arch directive beside the other defaults
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    App::FuguVM::CLI->run('init', $tmpdir);
+
+    open my $fh, '<', "$tmpdir/.fuguvm/vms/default.conf" or die $!;
+    my $conf = do { local $/; <$fh> };
+    close $fh;
+    like($conf, qr/^arch = arm64$/m, 'init writes arch = arm64');
+}
+
+# An unknown arch value is a configuration error, exit code 3. A VM
+# that no file declares still gives 4.
+{
+    my $project = tempdir(CLEANUP => 1);
+    make_path("$project/.fuguvm/vms", "$project/.fuguvm/state");
+
+    open my $fh, '>', "$project/.fuguvmrc" or die $!;
+    print $fh "state_dir .fuguvm/state\n";
+    print $fh "vm \"default\" {\n";
+    print $fh "\tarch riscv64\n";
+    print $fh "}\n";
+    print $fh "vm \"good\" {\n";
+    print $fh "\tarch amd64\n";
+    print $fh "}\n";
+    close $fh;
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet', 'status'),
+	3, 'an unknown arch value exits with EXIT_CONFIG_ERROR');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    '--vm', 'undeclared', 'status'),
+	4, 'an undeclared VM name still exits with EXIT_VM_NOT_FOUND');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    '--vm', 'good', 'status'),
+	0, 'a valid arch value loads');
+}
+
 # ============================================================
 # Installed-image cache subcommand
 # ============================================================
@@ -344,7 +382,7 @@ SKIP: {
     my $disk = App::FuguVM::Disk->new($state_dir);
     $disk->create('default', '16M');
     my $state = App::FuguVM::State->new($state_dir, 'default');
-    $state->mark_installed;
+    $state->mark_installed('arm64');
 
     local $SIG{__WARN__} = sub {};
     is(App::FuguVM::CLI->run("--project=$project", '--quiet',
@@ -419,7 +457,7 @@ SKIP: {
     my $base = $cache->store($key, $source, { root_password => 'pw' });
     App::FuguVM::Disk->new("$project/.fuguvm/state")
 	->create('default', undef, $base);
-    App::FuguVM::State->new("$project/.fuguvm/state", 'default')->mark_installed;
+    App::FuguVM::State->new("$project/.fuguvm/state", 'default')->mark_installed('arm64');
 
     is(_capture_stdout($project, 'snapshot', 'list', '--names'), '',
 	'nothing on stdout when there are no snapshots');

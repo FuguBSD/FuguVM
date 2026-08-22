@@ -31,6 +31,10 @@ about.
 The generic codes come from L<Fugu::CLI>: 0 success, 1 error, 2
 invalid arguments, 3 configuration error, 7 timeout.
 
+Code 3 also reports an C<arch> value that is neither C<amd64> nor
+C<arm64>, and a QEMU binary of the architecture that is not on
+C<PATH>.
+
 These are the codes that mean something to a VM:
 
     4   the named VM is not in the configuration
@@ -41,8 +45,9 @@ These are the codes that mean something to a VM:
 Code 11 is scriptable: a script that runs C<snapshot restore ||
 provision-from-scratch> can tell a missing layer from a real failure.
 
-L<App::FuguVM::Guest> uses these constants from here rather than defining the
-same numbers a second time.
+L<App::FuguVM::Guest> defines the codes that it returns, because
+this module loads L<App::FuguVM::Guest> and the reverse import would
+be a cycle.
 
 =head1 METHODS
 

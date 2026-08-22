@@ -76,10 +76,16 @@ C<-pidfile> option, so there is no setter.
 
 The working disk of the VM.
 
-=head2 is_installed, mark_installed
+=head2 is_installed, mark_installed, get_installed_arch
 
 Whether OpenBSD is installed on the disk. An installed system boots
 its own disk and never attaches the miniroot again.
+
+C<mark_installed> takes the architecture of the installed disk. The
+argument is required, so no path can forget it. C<get_installed_arch>
+returns the recorded architecture, or C<undef>. L<App::FuguVM::Guest>
+compares it with the configured value before it boots an existing
+disk.
 
 =head2 set_root_password, get_root_password
 

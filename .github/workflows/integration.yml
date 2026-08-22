@@ -5,7 +5,7 @@ name: Integration
 # answers, the firmware, and the architecture of the guest.
 #
 # Use explicit includes, never excludes. Only a path that shapes an
-# installation may start this workflow, because a run costs tens of
+# installation can start this workflow, because a run costs tens of
 # minutes under TCG.
 on:
   push:
@@ -55,6 +55,10 @@ jobs:
         include:
           - arch: arm64
             accel: tcg
+          # The runner exposes /dev/kvm, so an amd64 guest must run
+          # under KVM. A fall-back to TCG fails the job.
+          - arch: amd64
+            accel: kvm
 
     env:
       # install.exp reads this timeout for each prompt. A TCG
@@ -75,6 +79,27 @@ jobs:
         with:
           dependencies: runtime
 
+      # The runner limits /dev/kvm to the kvm group, and the runner
+      # user gets the group only on a new login. The udev rule opens
+      # the device, so the tool can select KVM in this job. A runner
+      # without /dev/kvm cannot serve the job, and the step reports
+      # that cause with the virtualization flags of the CPU.
+      - name: Give the runner access to /dev/kvm
+        if: matrix.accel == 'kvm'
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::This runner has no /dev/kvm"
+            echo "CPU cores with vmx or svm:"
+            grep -c -E 'vmx|svm' /proc/cpuinfo || true
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+          test -w /dev/kvm
+
       # The tool installs the public key in the guest, and every SSH
       # connection authenticates through the agent.
       - name: Make an SSH key and start the agent
@@ -92,6 +117,7 @@ jobs:
           ssh_pubkey $(cat ~/.ssh/id_ed25519.pub)
 
           vm "default" {
+              arch         ${{ matrix.arch }}
               version      7.8
               memory       2048
               disk_size    8G
@@ -117,6 +143,15 @@ jobs:
       - name: Check the accelerator
         run: |
           grep -F "Using QEMU accelerator: ${{ matrix.accel }}" install.log
+
+      # The installation published a base image. The entry of the
+      # architecture must exist, and the base must be immutable.
+      - name: Check the image cache
+        run: |
+          entry="$(echo ~/.cache/fuguvm/installed/*-${{ matrix.arch }}-*)"
+          test -d "$entry"
+          test -f "$entry/base.qcow2"
+          test "$(stat -c '%a' "$entry/base.qcow2")" = "400"
 
       - name: Stop the guest
         run: bin/fuguvm down

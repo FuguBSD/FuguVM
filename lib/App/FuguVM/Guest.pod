@@ -59,6 +59,32 @@ with a password argument it authenticates with that password instead
 of the SSH agent. C<console_port> is the port that C<telnet> reaches
 the serial console on.
 
+=head1 ARCHITECTURE
+
+The C<arch> value of the configuration selects the QEMU binary, the
+machine type, the firmware, and the TCG CPU model, through
+L<App::FuguVM::Arch>. C<up> and C<start> exit with code 3 when the
+QEMU binary of the architecture is not on C<PATH>.
+
+An arm64 guest boots its firmware code file with C<-bios>. An amd64
+guest boots through two pflash devices: the code file read-only, and
+a fresh copy of its variable-store template in the state directory.
+The copy is throwaway state, and every start makes it again. A guest
+does not start without a firmware file, and the message names the
+architecture.
+
+The accelerator follows the host. KVM and HVF need a host machine
+that runs the instruction set of the guest. KVM serves Linux with a
+writable F</dev/kvm>, and HVF serves Darwin. Every other case, an
+OpenBSD host included, uses TCG software emulation. C<host> CPU
+passthrough pairs with hardware acceleration, and the TCG model of
+the architecture pairs with TCG.
+
+A disk belongs to one architecture for its whole life. C<up> and
+C<start> stop with an error when the state records an other
+architecture for the existing disk, and the message names
+C<fuguvm destroy>.
+
 =head1 SHUTDOWN
 
 A shutdown syncs the guest filesystems first, then asks the guest to
@@ -72,7 +98,7 @@ leaves a filesystem that the next boot has to repair.
 =head1 SEE ALSO
 
 L<Fugu::Process>, L<Fugu::SSH>, L<Fugu::Timeout>,
-L<App::FuguVM::Disk>, L<App::FuguVM::DiskCache>,
+L<App::FuguVM::Arch>, L<App::FuguVM::Disk>, L<App::FuguVM::DiskCache>,
 L<App::FuguVM::QMP>, L<App::FuguVM::State>, L<fuguvm(1)>
 
 =head1 AUTHOR

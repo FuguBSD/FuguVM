@@ -51,6 +51,8 @@ The mirror proxy caches the OpenBSD sets that an install fetches.
 
 - **GST-ARCH-1** — A `vm` block must accept `arch amd64` or `arch arm64`, and
   the value must select the QEMU binary, the firmware, and the miniroot.
+- **GST-ARCH-2** — The tool must select KVM or HVF only when the host machine
+  runs the instruction set of the guest. It must select TCG in every other case.
 
 <a id="gst-fleet"></a>
 
