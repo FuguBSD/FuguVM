@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: GST-FLEET.
 
 ## Purpose
 

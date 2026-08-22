@@ -2,11 +2,10 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: GST-MIRROR.
 
-This plan depends on Fugu plan 004. That plan lives in the Fugu repository, at
-`plans/004-signify-verification/plan.md`. It adds `Fugu::Signify`, and this plan
-is its first consumer. Read it first.
+This plan depends on Fugu LIB-SIGNIFY, the `Fugu::Signify` module of the Fugu
+specification, and this plan is its first consumer. Read that unit first.
 
 The module must reach FuguVM through a Fugu release. Each `deps/` manifest names
 the stable asset:
@@ -18,14 +17,14 @@ runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.g
 `make deps` installs that tarball with cpanm. This plan therefore lands after a
 Fugu release that carries `Fugu::Signify`.
 
-Fugu plan 004 leaves one question to this plan. Its open question 6 asks who
-holds the OpenBSD release keys on a Linux host and on a Darwin host. This plan
-answers it under "The signify keys".
+The Fugu work leaves one question to this plan: who holds the OpenBSD release
+keys on a Linux host and on a Darwin host. This plan answers it under "The
+signify keys".
 
-Fugu plan 004 also states one test limit. This plan must honor it: "One path the
-unit test cannot cover: a real OpenBSD `SHA256` file and its release key. FuguVM
-proves that path against a live mirror, in the test of its plan 005." The
-acceptance list below holds that proof.
+The Fugu work also states one test limit, and this plan must honor it: a unit
+test cannot cover a real OpenBSD `SHA256` file and its release key. FuguVM
+proves that path against a live mirror. The acceptance list below holds that
+proof.
 
 Plan 001 is not a dependency, but the two plans touch the same lines.
 `App::FuguVM::Miniroot` holds both mirror facts today:
@@ -855,8 +854,8 @@ fetches nothing:
 - `make deps` installs signify(1) on Linux and on Darwin, and
   `Fugu::Signify->is_available` then returns 1.
 - `fuguvm mirror fetch ports.tar.gz` verifies a real `SHA256` of a live mirror
-  under a real release key, and it prints the cached path. Fugu plan 004 states
-  that its unit test cannot cover this path, so this run is the proof of record.
+  under a real release key, and it prints the cached path. A unit test cannot
+  cover this path, so this run is the proof of record.
 - The same command against a manifest with one byte changed exits 1, and the
   cache holds no ports tree afterwards.
 - `fuguvm mirror verify` over a warm cache of a completed install exits 0. The

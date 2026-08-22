@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: GST-TRANSFER.
 
 This plan depends on plan 002,
 [`plans/002-scriptable-and-parallel-guests/plan.md`](../002-scriptable-and-parallel-guests/plan.md).
@@ -10,11 +10,10 @@ Plan 002 adds the `bind_address` directive, whose default is `127.0.0.1`, and
 the method `App::FuguVM::Guest->connect_address`. Each verb of this plan
 connects to that address.
 
-This plan also depends on Fugu plan 003. That plan lives in the Fugu repository,
-at `plans/003-ssh-read-file-and-host-keys/plan.md`. It adds
-`Fugu::SSH->read_file`, which `fuguvm get` needs. That plan lands in two parts:
-part one adds `read_file`, and part two adds the strict host-key mode later. No
-verb of this plan sets the strict mode.
+This plan also depends on Fugu LIB-SSH. That unit covers `Fugu::SSH->read_file`,
+which `fuguvm get` needs. The Fugu work lands in two parts: part one adds
+`read_file`, and part two adds the strict host-key mode later. No verb of this
+plan sets the strict mode.
 
 ## Purpose
 
@@ -43,14 +42,12 @@ Four consumer harnesses must copy a source tree into a guest, run a build step
 there, and copy a report back out. No consumer can hold that work, because a
 consumer must not load an `App::FuguVM` module.
 
-The transport half belongs in `Fugu::`, and it lands there: Fugu plan 003 adds
+The transport half belongs in `Fugu::`, and it lands there: Fugu LIB-SSH covers
 `Fugu::SSH->read_file`, beside the `write_file` that stands today. This plan
 holds the tool half only: the verbs, the argument quoting, the local walk, the
-publish order, and the exit codes. Fugu plan 003 assigns the quoting here in one
-sentence of its "Out of scope" section:
-
-> A list form of `run_command`. The method keeps its string argument. FuguVM
-> plan 003 owns the quoting of an argument list.
+publish order, and the exit codes. The Fugu work keeps the string argument of
+`run_command` and leaves a list form out of its scope, so this plan owns the
+quoting of an argument list.
 
 The console half belongs to `App::FuguVM::Console`, which already drives the
 serial console with expect(1) scripts. The attach verb is the same console, with
@@ -95,8 +92,8 @@ that exists.
 
 FuguTTX must not call `Fugu::SSH`. Decision D7 states that the client loads only
 `Fugu::REPL` from the distribution. FuguTTX reaches this work as a command, like
-qemu and the `scw` CLI, so no decision blocks it. FuguTTX plan 001 proposes the
-D7 change, and it waits for a human.
+qemu and the `scw` CLI, so no decision blocks it. A FuguTTX proposal to change
+D7 waits for a human.
 
 The architecture check of IAC-METAL-1 needs an amd64 guest, which FuguVM plan
 001 adds. The argument-vector form of the same command needs this plan.
@@ -124,7 +121,7 @@ Out of scope:
   input of the caller, because ssh(1) inherits it.
 - A remote symbolic link, a device node, a socket, and a fifo. The tool copies a
   regular file and a directory.
-- A host key policy. Fugu plan 003 owns the `strict` and `known_hosts` options,
+- A host key policy. Fugu LIB-SSH owns the `strict` and `known_hosts` options,
   and no verb of this plan sets either one.
 - A telnet client of its own. QEMU serves the console with the telnet protocol,
   and telnet(1) speaks it.
@@ -210,7 +207,7 @@ name a large value. One value bounds the connect too, so a caller must run
 order: "The harness must call `fuguvm up`, then `fuguvm wait`, then one
 `fuguvm ssh` call for each step."
 
-**`write_file` returns a status, and `read_file` returns data.** Fugu plan 003
+**`write_file` returns a status, and `read_file` returns data.** The Fugu work
 records both shapes in one table:
 
 | Method       | Success           | Failure |
@@ -393,7 +390,7 @@ The verb reads the whole file with `Fugu::SSH->read_file`, with
 with `Fugu::File->ensure_dir`. It then writes the bytes with
 `Fugu::File->write_atomic`, mode 0644.
 
-That order leaves no partial local file. Fugu plan 003 states the same order,
+That order leaves no partial local file. The Fugu work states the same order,
 and it is the reason `read_file` returns bytes and not a stream.
 
 `get` does not read the mode of the remote file, because `read_file` returns
@@ -537,7 +534,7 @@ The change adds no external program. telnet(1) is already a runtime dependency.
 `deps/OpenBSD.txt` names no telnet package, because the base system ships it.
 All three shipped expect(1) scripts already spawn telnet.
 
-`fuguvm get` needs `Fugu::SSH->read_file`, which Fugu plan 003 adds. The `dist`
+`fuguvm get` needs `Fugu::SSH->read_file`, which Fugu LIB-SSH covers. The `dist`
 line of each manifest fetches `releases/latest/download/Fugu.tar.gz`, and a
 release asset carries no version. So `cmd_get` must test
 `Fugu::SSH->can('read_file')` first. When the method is absent the verb must log
@@ -655,7 +652,7 @@ them.
   `Protocol::` import.
 - `mandoc -Tlint man/fuguvm/fuguvm.1` reports nothing.
 - The `.pod` sidecar of each changed module documents every public sub.
-- FuguVM passes against a build of the Fugu branch of Fugu plan 003:
+- FuguVM passes against a Fugu build that carries the LIB-SSH work:
   `cpanm --local-lib=local ../Fugu/build/Fugu-*.tar.gz`, then `make check`.
 - One recorded live run against a guest proves the transfer. The run holds these
   steps, in this order:

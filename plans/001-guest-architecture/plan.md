@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: GST-ARCH.
 
 ## Purpose
 
@@ -316,7 +316,7 @@ The miniroot file name does not change: `_image_filename` returns
 `key($vm_config)` reads `$vm_config->{arch}`. It returns `undef` with a warning
 when the configuration carries no architecture, exactly as it does for an
 installer script that it cannot read. The caller then has no key, and thus no
-caching. The module no longer reads `App::FuguVM::Miniroot::ARCH`.
+caching. The module reads no `App::FuguVM::Miniroot::ARCH` constant.
 
 ### App::FuguVM::State
 
