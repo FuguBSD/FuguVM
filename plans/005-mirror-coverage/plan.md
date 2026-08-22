@@ -37,9 +37,8 @@ This plan moves the host into a new mirror module, which takes the version and
 the architecture as arguments. The mirror module is then the one home of the
 host, the version and the architecture.
 
-Plan 002 is not a dependency. Its `fuguvm status` gains one key here,
-`proxy_url`. The key set of `status` must stay stable, so the two plans must
-agree on the shape of that report.
+`fuguvm status` gains one key here, `proxy_url`. The key set of `status` must
+stay stable, so this plan follows the shape of that report.
 
 Plan 003 is not a dependency. Its `fuguvm put` carries a distfile that no
 OpenBSD mirror serves into a guest, and this plan names that route where it
@@ -628,9 +627,8 @@ The tool writes no file in the guest for this. Two lines of guest configuration
 make the cache work, and the consumer owns both:
 
 1. `http_proxy` must name the `proxy_url` value of `fuguvm status`. ftp(1) in
-   the guest reads that variable. Plan 002 adds the one-key form,
-   `fuguvm status proxy_url`, which a `make` target can read with no text
-   filter.
+   the guest reads that variable. The one-key form, `fuguvm status proxy_url`,
+   lets a `make` target read the value with no text filter.
 2. The ports tree must fetch each distfile from the OpenBSD distfile mirror,
    over http. A fetch from an upstream site over https reaches no cache.
 

@@ -37,10 +37,21 @@ use constant {
 	DEFAULT_DISK_SIZE    => '8G',
 	DEFAULT_SSH_PORT     => 2222,
 	DEFAULT_CONSOLE_PORT => 4444,
+	DEFAULT_BIND_ADDRESS => '127.0.0.1',
 	DEFAULT_VERSION      => '7.8',
-	DATA_DIR             => '.fuguvm',
-	GLOBAL_CONFIG        => '.fuguvmrc',
-	PROJECT_CONFIG       => '.fuguvmrc',
+
+	# The word that makes a port directive take a free host port.
+	# This constant is the one home of the word.
+	AUTO_PORT => 'auto',
+
+	# The size of each automatic port range. A range starts at the
+	# default port of its directive, so the bounds need no constant
+	# of their own.
+	AUTO_PORT_COUNT => 100,
+
+	DATA_DIR       => '.fuguvm',
+	GLOBAL_CONFIG  => '.fuguvmrc',
+	PROJECT_CONFIG => '.fuguvmrc',
 };
 
 sub new ( $class, $project_root )
@@ -147,8 +158,60 @@ sub load_vm ( $self, $name )
 		return;
 	}
 
+	# This loader is also the boundary of the two port directives
+	# and of the bind address. No module downstream repeats these
+	# checks.
+	for my $directive (qw(ssh_port console_port)) {
+		next if _valid_port( $vm->{$directive} );
+		$self->{error} = sprintf(
+			"VM '%s': %s '%s' is not a port from 1 to 65535"
+			    . " and not '%s'",
+			$name, $directive, $vm->{$directive}, AUTO_PORT );
+		return;
+	}
+
+	# The bind address follows the same fallback chain as
+	# ssh_pubkey and cache_dir below.
+	$vm->{bind_address} //= $self->bind_address;
+	if ( !_valid_ipv4( $vm->{bind_address} ) ) {
+		$self->{error} = sprintf(
+			"VM '%s': bind_address '%s' is not an IPv4 address"
+			    . " in dotted-decimal form",
+			$name, $vm->{bind_address} );
+		return;
+	}
+
+	# The version gate of the guest reads the directive from the
+	# per-VM config. The directive lives in the enclosing files
+	# only: the pinned binary is a fact of the host, not of one
+	# guest. A pin inside a VM declaration would silently not
+	# apply, so it is an error.
+	if ( exists $vm->{qemu_version} ) {
+		$self->{error} = sprintf(
+			"VM '%s': qemu_version lives in the project or the"
+			    . " global .fuguvmrc, not in a VM declaration",
+			$name
+		);
+		return;
+	}
+	$vm->{qemu_version} = $self->qemu_version;
+	if ( defined $vm->{qemu_version}
+		&& $vm->{qemu_version} !~ /^[0-9]+(?:\.[0-9]+)*$/ )
+	{
+		$self->{error} =
+		    sprintf( "VM '%s': qemu_version '%s' is not a version"
+			    . " of dot-separated decimal numbers",
+			$name, $vm->{qemu_version} );
+		return;
+	}
+
 	# Include ssh_pubkey from the global or project config
 	$vm->{ssh_pubkey} //= $self->ssh_pubkey;
+
+	# Include the fixed ports of every VM declaration. The port
+	# probe of the guest skips them, so an automatic port cannot
+	# take the number of a declared sibling, stopped or not.
+	$vm->{declared_ports} = $self->declared_ports;
 
 	# Include the resolved cache_dir. Then the VM operations, the
 	# proxy cache and the installed-image cache, all use the
@@ -172,6 +235,43 @@ sub load_vm ( $self, $name )
 sub error ($self)
 {
 	return $self->{error};
+}
+
+# _valid_port($value):
+#	Report if a port directive holds the word AUTO_PORT or a
+#	decimal number from 1 to 65535.
+sub _valid_port ($value)
+{
+	return 0 if !defined $value;
+	return 1 if $value eq AUTO_PORT;
+
+	# A leading zero is not decimal, and the string-keyed port sets
+	# of the probe would not match it.
+	return 0 if $value !~ /^[1-9][0-9]*$/;
+
+	return $value <= 65535 ? 1 : 0;
+}
+
+# _valid_ipv4($value):
+#	Report if a value is one IPv4 address in dotted-decimal form.
+#	A host name is not: a name resolves once for QEMU and once for
+#	the tool, and the two answers can differ.
+sub _valid_ipv4 ($value)
+{
+	return 0 if !defined $value;
+
+	my @parts = split /\./, $value, -1;
+	return 0 if @parts != 4;
+
+	for my $part (@parts) {
+
+		# A leading zero reads as octal in inet_aton, so such a
+		# component is not decimal.
+		return 0 if $part !~ /^(?:0|[1-9][0-9]{0,2})$/;
+		return 0 if $part > 255;
+	}
+
+	return 1;
 }
 
 sub cache_dir ($self)
@@ -229,6 +329,62 @@ sub default_vm ($self)
 sub ssh_pubkey ($self)
 {
 	return $self->_setting('ssh_pubkey');
+}
+
+# $self->declared_ports:
+#	Return the fixed ports of every VM declaration of the project,
+#	as a hash reference keyed by port. A declaration that omits a
+#	port directive holds the default port of that directive. The
+#	set covers the vm blocks of both files and the files under
+#	vms/.
+sub declared_ports ($self)
+{
+	my @declarations =
+	    map { $_->{settings} }
+	    ( $self->{project}->blocks('vm'), $self->{global}->blocks('vm') );
+
+	my $vms_dir = "$self->{data_dir}/vms";
+	if ( opendir my $dh, $vms_dir ) {
+		for my $file ( sort grep { /\.conf$/ } readdir $dh ) {
+			my $parsed = $self->_parse("$vms_dir/$file");
+			push @declarations,
+			    { map { $_ => $parsed->get($_) }
+				    $parsed->setting_names };
+		}
+		closedir $dh;
+	}
+
+	my %defaults = (
+		ssh_port     => DEFAULT_SSH_PORT,
+		console_port => DEFAULT_CONSOLE_PORT,
+	);
+
+	my %ports;
+	for my $settings (@declarations) {
+		for my $directive (qw(ssh_port console_port)) {
+			my $value = $settings->{$directive}
+			    // $defaults{$directive};
+			$ports{$value} = 1 if $value =~ /^[0-9]+$/;
+		}
+	}
+
+	return \%ports;
+}
+
+# $self->bind_address:
+#	Return the host address of the forwarded ports. The project
+#	file wins over the global one, and the default is loopback.
+sub bind_address ($self)
+{
+	return $self->_setting('bind_address') // DEFAULT_BIND_ADDRESS;
+}
+
+# $self->qemu_version:
+#	Return the pinned QEMU version, or undef. With no directive
+#	the tool checks nothing.
+sub qemu_version ($self)
+{
+	return $self->_setting('qemu_version');
 }
 
 1;

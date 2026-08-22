@@ -11,6 +11,7 @@ vm "default" {
 	disk_size    8G
 	ssh_port     2222
 	console_port 4444
+	bind_address 127.0.0.1
 }
 
 # Example: dedicated integration test VM

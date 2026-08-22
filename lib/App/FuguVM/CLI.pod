@@ -26,14 +26,40 @@ which writes to standard error. Thus C<fuguvm snapshot list --names>
 stays readable in a pipeline when the tool has something to warn
 about.
 
+=head1 THE STATUS REPORT
+
+C<fuguvm status> writes one C<key: value> line for each key to
+standard output, in sorted key order. It writes the lines whatever
+C<--quiet> says, because the lines are data. The key set is stable:
+every key appears on every run. A value can be empty, and an empty
+value means "not now". A line with an empty value ends with the
+colon and one space, so every line has one shape.
+
+The keys are C<accel>, C<arch>, C<bind_address>, C<console_port>,
+C<disk_exists>, C<installed>, C<name>, C<pid>, C<ssh_port> and
+C<state>. C<pid> and the two ports of an C<auto> directive are empty
+for a stopped guest.
+
+C<fuguvm status E<lt>keyE<gt>> writes the bare value of one key,
+with no key name and no colon. Thus a make target reads one port
+without a text filter. An unknown key gives exit code 2, and the
+diagnostic names every valid key.
+
+C<fuguvm disk info> shares the printer, so its report follows the
+same C<key: value> contract on standard output.
+
 =head1 EXIT CODES
 
 The generic codes come from L<Fugu::CLI>: 0 success, 1 error, 2
 invalid arguments, 3 configuration error, 7 timeout.
 
+Code 2 also reports an unknown C<status> key.
+
 Code 3 also reports an C<arch> value that is neither C<amd64> nor
 C<arm64>, and a QEMU binary of the architecture that is not on
-C<PATH>.
+C<PATH>. An invalid C<bind_address>, C<ssh_port>, C<console_port> or
+C<qemu_version> value gives the same code. So does a QEMU version
+that does not match the pinned C<qemu_version>.
 
 These are the codes that mean something to a VM:
 

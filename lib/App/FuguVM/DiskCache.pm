@@ -30,10 +30,12 @@ use v5.36;
 package App::FuguVM::DiskCache;
 
 use Digest::SHA ();
+use Fcntl       qw(:flock);
 use File::Path  qw(remove_tree);
 use Fugu::File;
 use Fugu::Log;
 use Fugu::Proxy;
+use Fugu::Timeout;
 use App::FuguVM::Console;
 
 use constant {
@@ -42,6 +44,8 @@ use constant {
 	INSTALLED_DIR     => 'installed',
 	SNAPSHOT_DIR      => 'snapshots',
 	TEMP_PREFIX       => '.tmp.',
+	LOCK_PREFIX       => '.lock.',
+	LOCK_TIMEOUT      => 3600,
 	GENERATION_FILE   => 'cache-generation',
 	INSTALL_SCRIPT    => 'install.exp',
 	KEY_HASH_LENGTH   => 8,
@@ -214,6 +218,41 @@ sub store ( $self, $key, $disk_path, $meta = {} )
 	return if !defined $built;
 
 	return "$target/" . BASE_NAME;
+}
+
+# $self->lock_entry($key, $timeout):
+#	Return an open, exclusively locked handle on the lock file of
+#	$key. The caller holds the lock until the handle closes or the
+#	process exits, so a stale lock file blocks nothing. Return
+#	undef when the deadline elapses, and undef when the file cannot
+#	open.
+#
+#	The lock serializes the first population of one entry across
+#	every project that shares the cache directory. It does not
+#	replace the write-once rule of store: a run that lost the lock
+#	to the deadline still cannot publish a second entry.
+#
+#	The file name starts with a dot, so it cannot collide with an
+#	entry. list reads only a directory whose name has no leading
+#	dot. sweep_temp removes only a '.tmp.' directory.
+sub lock_entry ( $self, $key, $timeout = LOCK_TIMEOUT )
+{
+	return if !defined $key;
+
+	Fugu::File->ensure_dir( $self->installed_dir ) or return;
+
+	my $path = $self->installed_dir . '/' . LOCK_PREFIX . $key;
+	open my $fh, '>>', $path or do {
+		Fugu::Log->default->warning( 'Cannot open %s: %s', $path, $! );
+		return;
+	};
+
+	my $locked =
+	    Fugu::Timeout::bounded( $timeout, sub { flock $fh, LOCK_EX } );
+	return $fh if $locked;
+
+	close $fh;
+	return;
 }
 
 # $self->list:
@@ -476,6 +515,12 @@ sub _snapshot_names ( $self, $key )
 sub remove ( $self, $key )
 {
 	my $dir = $self->entry_dir($key);
+
+	# The lock file of the entry goes too, so removed keys leave no
+	# lock files behind. A holder keeps its flock on the unlinked
+	# file until it exits.
+	unlink $self->installed_dir . '/' . LOCK_PREFIX . $key;
+
 	return 1 if !-d $dir;
 
 	remove_tree( $dir, { safe => 0 } );

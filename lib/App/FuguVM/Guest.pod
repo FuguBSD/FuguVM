@@ -52,12 +52,81 @@ clean shutdown. C<destroy> stops it and deletes the disk. C<start> and
 C<stop> are the narrow forms that do not touch the proxy. C<status>
 reports the state.
 
-=head2 wait_ssh, ssh_port, console_port, is_running
+=head2 wait_ssh, is_running
 
 C<wait_ssh> polls until the guest takes an authenticated connection;
 with a password argument it authenticates with that password instead
-of the SSH agent. C<console_port> is the port that C<telnet> reaches
-the serial console on.
+of the SSH agent.
+
+=head2 accel, bind_address, connect_address, ssh_port, console_port
+
+The facts of the guest that C<status> reports and that the guest
+connections use.
+
+C<accel> returns C<kvm>, C<hvf> or C<tcg>. While the guest runs, the
+answer is the recorded value: a guest that started under
+C<--emulate> runs TCG whatever the host can do now. In every other
+case the answer is the accelerator that the tool selects now.
+
+C<bind_address> returns the configured host address of the forwarded
+ports. C<connect_address> returns the address that the tool connects
+to: the bind address, or C<127.0.0.1> when the bind address is
+C<0.0.0.0>, because C<0.0.0.0> is not a destination.
+
+C<ssh_port> and C<console_port> return the recorded port while the
+guest runs, and fall back to the configured number. They return
+C<undef> for C<auto> in every other case: the record describes one
+run, so a stopped guest has no port. Thus a record that a crash left
+behind cannot read as a live port.
+
+=head1 ADDRESSES AND PORTS
+
+QEMU binds the forwarded SSH port and the serial console to
+C<bind_address>. The default is C<127.0.0.1>, so no other machine
+reaches a guest. C<bind_address 0.0.0.0> restores the wider reach.
+Every connection that the tool makes to its own guest uses
+C<connect_address>.
+
+C<up> and C<start> resolve both ports one time for each invocation,
+before the first spawn, and record them with the accelerator in
+L<App::FuguVM::State>. A directive of C<auto> takes the first free
+port of a fixed range: 100 ports from the default port of the
+directive. The probe binds a listening socket on the bind address
+and the candidate port. It skips every port that the record of a
+sibling guest of the project holds. It also skips every fixed port
+that a VM declaration of the project holds, stopped or not. An
+exhausted range stops the run with exit code 1.
+
+An exclusive C<flock(2)> on F<ports.lock> in the cache directory
+covers the probe and the record of both ports, with a deadline of 30
+seconds. Every project that shares the cache directory shares the
+lock, so the probes serialize while every holder is inside its
+deadline. The record exclusion covers the guests of one project
+only. One window stays open: a
+foreign process, a guest of an other project included, can take a
+probed port before QEMU binds it. QEMU then fails to start, and the
+tool reports that failure with the QEMU log. On the deadline the
+tool logs a warning and probes without the lock. The stop verbs
+clear the record, so a later C<start> resolves again. C<stop> on a
+guest that does not run also clears the record that a crash left
+behind.
+
+=head1 VERSION GATE
+
+The optional C<qemu_version> directive pins the version of the QEMU
+system binary. C<up> and C<start> enforce it one time for each
+invocation, before the first spawn. The tool runs the binary that
+the architecture selects with C<--version>, under a deadline of 10
+seconds, and parses the first dotted-decimal token of the first
+output line.
+
+The match runs component by component, over the components that the
+directive names: C<9.0> accepts C<9.0.4> and refuses C<9.1.0>, and
+C<9.0.4> accepts C<9.0.4> only. A mismatch gives exit code 3, with a
+message that names both versions. A pinned version that the tool
+cannot verify fails closed with the same code: an absent binary, and
+output with no version in it, both refuse the start. With no
+directive the tool checks nothing, and it does not run the binary.
 
 =head1 ARCHITECTURE
 

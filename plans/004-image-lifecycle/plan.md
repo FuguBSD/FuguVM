@@ -12,9 +12,9 @@ legacy BIOS". The tool builds such a guest: `arch amd64` selects the amd64
 machine, the x86 EFI firmware, and the accelerator. An arm64 export stays useful
 for a FuguBSD developer, but no Scaleway host can boot it.
 
-Plan 002 is not a dependency. Two of its changes help this work, and this plan
-names each one where it applies. The two changes are the lock around the first
-population of one cache entry, and the `bind_address` directive.
+The code holds two features that help this work, and this plan names each one
+where it applies. The two features are the lock around the first population of
+one cache entry, and the `bind_address` directive.
 
 ## Purpose
 
@@ -412,9 +412,9 @@ vm "scenario-1" {
 | Several guests                    | Every guest of the project derives the same key, so one entry serves the whole fleet.                         |
 
 The publication costs one `qemu-img convert` of the whole image, and it happens
-one time for each host. Plan 002 adds a lock around the first population of one
-entry. With that lock a parallel fleet publishes one time, and each other guest
-waits and then overlays.
+one time for each host. The image cache locks the first population of one entry.
+With that lock a parallel fleet publishes one time, and each other guest waits
+and then overlays.
 
 ### `fuguvm image export`
 
@@ -458,9 +458,8 @@ sorted key order:
 | `path`   | The absolute path of the written file          |
 | `source` | The absolute path of the source image          |
 
-The report uses the printer of `fuguvm status`. Plan 002 moves that printer to
-standard output, and it holds the stable-key rule. Until then the report goes
-through the logger, like every other report of the tool.
+The report uses the printer of `fuguvm status`. That printer writes to standard
+output, and it holds the stable-key rule.
 
 ### The credentials of an installed image
 
