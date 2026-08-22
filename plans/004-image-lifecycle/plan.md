@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: GST-IMAGES.
 
 This plan depends on plan 001,
 [`plans/001-guest-architecture/plan.md`](../001-guest-architecture/plan.md). A
@@ -134,9 +134,9 @@ Out of scope:
   the exported image holds no per-checkout SSH key and no scenario state.
 - An upload of the image to object storage. FuguTTX `IAC-IMAGE` states that
   `make image-publish` does that with the `scw` CLI.
-- A signature or a manifest beside the image. Fugu plan 004 adds
-  `Fugu::Signify`, and FuguVM plan 005 consumes it for the mirror. No consumer
-  asks for a signed image export today.
+- A signature or a manifest beside the image. Fugu LIB-SIGNIFY covers
+  `Fugu::Signify`, and plan 005 consumes it for the mirror. No consumer asks for
+  a signed image export today.
 - An `--arch` option on the export. A disk belongs to one architecture for its
   whole life, and plan 001 states that rule.
 - A conversion to VMDK or to VHD. Scaleway takes a qcow2 for the Instance route

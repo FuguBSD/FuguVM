@@ -10,7 +10,8 @@ in CI.
 
 FuguVM is written in Perl (v5.36) over the
 [Fugu](https://github.com/FuguBSD/Fugu) library. It adds no direct CPAN
-dependency of its own.
+dependency of its own. The specification in [spec/](spec/index.md) states the
+design.
 
 ## Quick start
 
@@ -24,16 +25,49 @@ bin/fuguvm down
 `make deps` installs the latest Fugu release, QEMU, and the SSH and HTTP modules
 the optional features use. See [INSTALL.md](INSTALL.md) for full instructions.
 
+## Layout
+
+- `bin/fuguvm` — the CLI entry point, over `App::FuguVM::CLI`
+- `lib/App/FuguVM/` — the modules, one concern each, every one with a `.pod`
+  sidecar
+- `man/fuguvm/fuguvm.1` — the mdoc(7) reference for the tool
+- `share/fuguvm/` — the expect scripts, the cache-generation file, and the
+  configuration samples
+- `spec/` — the specification; `t/fuguvm/`, `t/scripts/`, `t/ci/` — the test
+  tiers
+- `deps/` — per-OS dependency manifests, installed by `make deps`; `scripts/` —
+  the dependency, download, check and dist helpers
+
 ## Documentation
 
 `man fuguvm` — or `mandoc man/fuguvm/fuguvm.1 | less` from a checkout — holds
 the full command, option, and exit-code reference. Each module documents its API
 in a `.pod` sidecar; start with `lib/App/FuguVM.pod`.
 
-## Development
+## Commands
 
-See [CLAUDE.md](CLAUDE.md) for the development guide: style, testing,
-documentation placement, and the release flow.
+```sh
+make check          # lint + test + tidy + spec-check + ste-lint
+make test           # prove -l -v t/{fuguvm,scripts,ci}/*.t
+prove -l t/fuguvm/foo.t    # one test file
+make tidy-fix       # auto-fix Perl formatting
+make prettier       # Markdown/JSON/YAML formatting check
+make dist           # build the release tarball
+```
+
+The tests need the Fugu library on `@INC`; a local build of the sibling checkout
+works too: `cpanm --local-lib=local ../Fugu/build/Fugu-*.tar.gz`.
+
+## Releases
+
+Push a `v<MAJOR>.<MINOR>.<PATCH>` tag, and the release workflow publishes the
+tarball to GitHub Releases and to PAUSE. The rules are in
+[spec/release.md](spec/release.md).
+
+## Commit scopes
+
+`cli`, `config`, `console`, `disk`, `guest`, `miniroot`, `proxy`, `qmp`,
+`state`, `spec`, `deps`, `ci`.
 
 ## License
 

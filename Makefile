@@ -1,4 +1,4 @@
-.PHONY: all build check clean clean-man deps deps-develop deps-test dist install install-man lint man prettier prettier-fix test tidy tidy-fix uninstall
+.PHONY: all build check clean clean-man deps deps-develop deps-test dist install install-man lint man prettier prettier-fix spec-check ste-lint test tidy tidy-fix uninstall
 
 # Filesystem configuration
 PREFIX			?= /usr/local
@@ -41,7 +41,7 @@ build: dist
 
 # prettier stays out of check: it runs through npx, and no deps/
 # manifest provides node. CI runs it in its own job.
-check: lint test tidy
+check: lint test tidy spec-check ste-lint
 
 clean: clean-man
 	rm -rf build
@@ -89,6 +89,12 @@ install-man:
 	# Install man pages
 	install -d $(DESTDIR)$(MANDIR)/man1
 	install -m 644 $(MAN1) $(DESTDIR)$(MANDIR)/man1/
+
+spec-check:
+	@./scripts/spec-check
+
+ste-lint:
+	@./scripts/ste-lint
 
 lint:
 	@$(PERLSRC) | xargs perl -MPerl::Critic::Command -e 'Perl::Critic::Command::run()' -- --severity 4 --verbose 8
