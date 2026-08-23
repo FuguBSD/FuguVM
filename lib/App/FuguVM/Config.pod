@@ -22,6 +22,7 @@ directory and one in the project root. The project file wins.
     cache_dir ~/.cache/fuguvm
     state_dir .fuguvm/state
     default_vm default
+    qemu_version 9.0
 
     vm "default" {
         arch         arm64
@@ -30,6 +31,7 @@ directory and one in the project root. The project file wins.
         disk_size    8G
         ssh_port     2222
         console_port 4444
+        bind_address 127.0.0.1
     }
 
 The grammar, the tilde expansion and the yes/no spellings come from
@@ -70,7 +72,28 @@ C<arch> selects the guest architecture: C<amd64> or C<arm64>. The
 default is C<arm64>. The comparison is case sensitive, so C<AMD64> is
 an unknown value. This loader is the boundary of the directive: it
 validates the value one time, and no module downstream repeats the
-check.
+check. The same rule applies to C<bind_address>, C<ssh_port>,
+C<console_port> and C<qemu_version>.
+
+C<ssh_port> and C<console_port> take a decimal number from 1 to
+65535, or the word C<auto>. The defaults are 2222 and 4444. With
+C<auto>, L<App::FuguVM::Guest> takes a free host port from a fixed
+range and records it.
+
+C<bind_address> names the host address of every forwarded port, as
+one IPv4 address in dotted-decimal form. The default is
+C<127.0.0.1>. A host name is invalid: a name resolves once for QEMU
+and once for the tool, and the two answers can differ. The directive
+lives in a C<vm> block, in the project F<.fuguvmrc>, or in the
+global F<~/.fuguvmrc>, with that precedence.
+
+C<qemu_version> pins the version of the QEMU system binary. The value
+is one or more dot-separated decimal numbers, for example C<9.0>. The
+match runs over the components that the value names, so C<9> pins the
+major version alone. The directive lives
+in the project F<.fuguvmrc> or in the global F<~/.fuguvmrc>. A
+C<qemu_version> line inside a VM declaration is an error: such a pin
+would silently not apply. With no directive the tool checks nothing.
 
 C<cache_dir> is folded in on purpose. Without it, C<fuguvm up> would
 write its images under C<$HOME> while the cache subcommands worked on
@@ -80,10 +103,20 @@ a different tree.
 
 Return the reason of the last failed C<load_vm>, or C<undef>.
 
-=head2 cache_dir, state_dir, default_vm, ssh_pubkey
+=head2 cache_dir, state_dir, default_vm, ssh_pubkey, bind_address, qemu_version
 
 The top-level settings. C<cache_dir> expands a leading tilde;
 C<state_dir> resolves a relative path against the project root.
+C<bind_address> returns the setting of the enclosing files, or
+C<127.0.0.1>. C<qemu_version> returns the setting, or C<undef>.
+
+=head2 declared_ports
+
+Return the fixed ports of every VM declaration of the project, as a
+hash reference keyed by port. A declaration that omits a port
+directive holds the default port of that directive. C<load_vm> folds
+the set into the per-VM configuration, and the port probe of
+L<App::FuguVM::Guest> skips each port of the set.
 
 =head2 image_cache
 

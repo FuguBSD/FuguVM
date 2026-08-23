@@ -66,6 +66,10 @@ my %CONFIG = (
 	is( $cache->key( \%same ), $key,
 		'memory and ports do not shape the disk, so the key holds' );
 
+	my %bound = ( %CONFIG, bind_address => '0.0.0.0' );
+	is( $cache->key( \%bound ), $key,
+		'bind_address does not shape the disk either' );
+
 	my %bigger = ( %CONFIG, disk_size => '16G' );
 	isnt( $cache->key( \%bigger ), $key, 'disk_size rotates the key' );
 
@@ -171,6 +175,51 @@ my %CONFIG = (
 		undef, 'unparseable metadata is a miss, not a crash' );
 
 	is_deeply( $cache->list, [], 'list skips incomplete entries' );
+}
+
+# The entry lock: exclusive across processes, bounded, gone with its
+# holder, and invisible to the listing
+{
+	my $tmp   = tempdir( CLEANUP => 1 );
+	my $cache = App::FuguVM::DiskCache->new($tmp);
+	my $key   = '7.8-arm64-feedface';
+
+	my $lock = $cache->lock_entry( $key, 5 );
+	ok( defined $lock, 'lock_entry returns a handle' );
+	ok( -f $cache->installed_dir . "/.lock.$key",
+		'the lock file exists' );
+
+	# A second holder in a child process waits, and its deadline
+	# elapses while the first holder stays
+	my $started = time;
+	is( _lock_in_child( $tmp, $key, 1 ), 0,
+		'a second lock_entry waits, and the deadline gives undef' );
+	ok( time - $started < 30, 'and the wait does not hang' );
+
+	# The lock releases when the handle closes. The child takes it,
+	# and its own exit releases it again.
+	close $lock;
+	is( _lock_in_child( $tmp, $key, 5 ), 1,
+		'the lock is free once the handle closes' );
+
+	my $again = $cache->lock_entry( $key, 5 );
+	ok( defined $again, 'the lock releases when the holder exits' );
+	close $again;
+
+	# A dot file cannot collide with an entry
+	is_deeply( $cache->list, [],
+		'the lock file does not appear in list' );
+	is( $cache->sweep_temp, 0, 'sweep_temp leaves the lock file alone' );
+	ok( -f $cache->installed_dir . "/.lock.$key",
+		'and the lock file is still there' );
+
+	is( $cache->lock_entry(undef), undef, 'an undef key takes no lock' );
+
+	# remove takes the lock file with the entry, so removed keys
+	# leave no lock files behind
+	ok( $cache->remove($key), 'remove succeeds' );
+	ok( !-e $cache->installed_dir . "/.lock.$key",
+		'and the lock file of the key is gone' );
 }
 
 # sweep_temp removes temporary trees, whatever left them behind
@@ -439,6 +488,25 @@ sub _backing ($path)
 	my $out = qx{qemu-img info --output=json "$path" 2>/dev/null};
 	my $info = eval { JSON::XS::decode_json($out) };
 	return $info->{'full-backing-filename'} // $info->{'backing-filename'};
+}
+
+# _lock_in_child($dir, $key, $timeout):
+#	Try the entry lock from a child process. Return 1 when the
+#	child took the lock, and 0 when its deadline elapsed. The
+#	child exits through POSIX::_exit, so it runs no END block of
+#	the test harness.
+sub _lock_in_child ( $dir, $key, $timeout )
+{
+	my $pid = fork // die "Cannot fork: $!";
+	if ( $pid == 0 ) {
+		my $cache = App::FuguVM::DiskCache->new($dir);
+		my $lock  = $cache->lock_entry( $key, $timeout );
+		require POSIX;
+		POSIX::_exit( defined $lock ? 1 : 0 );
+	}
+
+	waitpid $pid, 0;
+	return $? >> 8;
 }
 
 sub _spit ( $path, $content )

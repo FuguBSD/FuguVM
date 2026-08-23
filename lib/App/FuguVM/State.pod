@@ -76,6 +76,18 @@ C<-pidfile> option, so there is no setter.
 
 The working disk of the VM.
 
+=head2 set_runtime, get_runtime, clear_runtime
+
+The runtime record: the facts of one run of one guest. The record
+holds C<accel> and the resolved C<ssh_port> and C<console_port>.
+L<App::FuguVM::Guest> writes it before it spawns QEMU, and reads it
+back for C<status> and for the guest connections.
+
+C<get_runtime> returns the facts as a hash reference, and an empty
+hash reference when the guest never ran. The stop verbs call
+C<clear_runtime> beside C<clear_vm_pid>, so the record dies with the
+run. C<destroy> needs no call, because it empties the whole store.
+
 =head2 is_installed, mark_installed, get_installed_arch
 
 Whether OpenBSD is installed on the disk. An installed system boots

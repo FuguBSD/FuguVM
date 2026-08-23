@@ -173,6 +173,39 @@ use_ok('App::FuguVM::State');
     is($state2->get_installed_ssh_pubkey, $test_pubkey, 'Pubkey persisted correctly');
 }
 
+# The runtime record: the facts of one run of one guest
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $state = App::FuguVM::State->new($tmpdir, 'test');
+
+    is_deeply($state->get_runtime, {},
+	'get_runtime returns an empty hash reference for a fresh state');
+
+    $state->set_runtime(
+	accel        => 'kvm',
+	ssh_port     => 2223,
+	console_port => 4445,
+    );
+    is_deeply($state->get_runtime,
+	{ accel => 'kvm', ssh_port => 2223, console_port => 4445 },
+	'set_runtime and get_runtime round-trip the three facts');
+
+    # The record persists across a reload
+    my $state2 = App::FuguVM::State->new($tmpdir, 'test');
+    is($state2->get_runtime->{ssh_port}, 2223,
+	'the record survives a reload');
+
+    # clear_runtime empties the record, and the store survives
+    $state2->set_root_password('sentinel');
+    $state2->clear_runtime;
+    is_deeply($state2->get_runtime, {}, 'clear_runtime empties the record');
+
+    my $state3 = App::FuguVM::State->new($tmpdir, 'test');
+    is_deeply($state3->get_runtime, {}, 'and the clearing persists');
+    is($state3->get_root_password, 'sentinel',
+	'the rest of the store survives the clearing');
+}
+
 # ============================================================
 # Robustness tests (from ROBUSTNESS-REPORT.md)
 # ============================================================

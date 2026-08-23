@@ -171,6 +171,37 @@ sub get_installed_arch ($self)
 	return $self->{store}->get('installed_arch');
 }
 
+# The runtime record: the facts of one run of one guest. The record
+# holds the selected accelerator and the two resolved host ports.
+# App::FuguVM::Guest writes it before it spawns QEMU, and the stop
+# verbs clear it beside clear_vm_pid.
+
+# $self->set_runtime(%facts):
+#	Record accel, ssh_port and console_port, and save the store.
+sub set_runtime ( $self, %facts )
+{
+	$self->{store}->set( runtime => \%facts );
+
+	return $self;
+}
+
+# $self->get_runtime:
+#	Return the recorded facts as a hash reference. Return an empty
+#	hash reference when the guest never ran.
+sub get_runtime ($self)
+{
+	return $self->{store}->get('runtime') // {};
+}
+
+# $self->clear_runtime:
+#	Delete the record, and save the store.
+sub clear_runtime ($self)
+{
+	$self->{store}->delete('runtime');
+
+	return $self;
+}
+
 # Root password management. The state stores the password for the
 # initial setup. The store writes at mode 0600.
 sub set_root_password ( $self, $password )

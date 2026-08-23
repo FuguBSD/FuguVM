@@ -198,9 +198,118 @@ SKIP: {
     is(App::FuguVM::CLI->run("--project=$project", '--quiet',
 	    '--vm', 'undeclared', 'status'),
 	4, 'an undeclared VM name still exits with EXIT_VM_NOT_FOUND');
-    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
-	    '--vm', 'good', 'status'),
-	0, 'a valid arch value loads');
+    my ($good) = _run_captured("--project=$project", '--quiet',
+	'--vm', 'good', 'status');
+    is($good, 0, 'a valid arch value loads');
+}
+
+# ============================================================
+# The status report
+# ============================================================
+
+# The report is data: one 'key: value' line per key on standard
+# output, whatever --quiet says, with nothing on standard error for
+# a healthy project. HOME is empty, so no real ~/.fuguvmrc can shape
+# the asserted values.
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $project = _cache_project();
+
+    my ($code, $out, $err) = _run_captured("--project=$project", 'status');
+    is($code, 0, 'status succeeds');
+    isnt($out, '', 'status writes to standard output');
+    is($err, '', 'and writes nothing to standard error');
+
+    my @lines = split /\n/, $out;
+    is(scalar(grep { !/^\w+: / } @lines), 0, 'each line matches ^\w+: ');
+
+    for my $key (qw(accel arch bind_address console_port disk_exists
+	installed name pid ssh_port state)) {
+	is(scalar(grep { /^$key: / } @lines), 1, "the report holds $key");
+    }
+
+    like($out, qr/^bind_address: 127\.0\.0\.1$/m,
+	'the report holds the default bind address');
+    like($out, qr/^ssh_port: 2222$/m,
+	'the report holds the configured SSH port');
+    like($out, qr/^accel: (hvf|kvm|tcg)$/m,
+	'the report holds a known accelerator');
+    like($out, qr/^pid: $/m,
+	'an empty value ends with the colon and one space');
+
+    my (undef, $quiet_out) =
+	_run_captured("--project=$project", '--quiet', 'status');
+    is($quiet_out, $out, '--quiet writes the same lines');
+}
+
+# One optional key argument selects one bare value. An unknown key
+# gives exit code 2 and names every valid key.
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $project = _cache_project();
+
+    my ($code, $out, $err) =
+	_run_captured("--project=$project", '--quiet', 'status', 'ssh_port');
+    is($code, 0, 'status with a key succeeds');
+    is($out, "2222\n", 'one bare value, with no key name and no colon');
+
+    ($code) = _run_captured("--project=$project",
+	'status', 'ssh_port', 'extra');
+    is($code, 2, 'a second argument returns EXIT_INVALID_ARGS');
+
+    ($code, $out, $err) =
+	_run_captured("--project=$project", 'status', 'nonsense');
+    is($code, 2, 'an unknown key returns EXIT_INVALID_ARGS');
+    is($out, '', 'and writes no data');
+    like($err, qr/nonsense/, 'the diagnostic names the unknown key');
+    like($err, qr/ssh_port/, 'and the valid keys');
+    like($err, qr/bind_address/, 'all of them');
+}
+
+# A connection command against a stopped guest with a directive of
+# 'auto' fails with a diagnostic. A connection with an undef port
+# would reach the default port of the protocol on the host itself.
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $project = _cache_project();
+    open my $fh, '>>', "$project/.fuguvmrc" or die $!;
+    print $fh "vm \"fleet\" {\n";
+    print $fh "\tssh_port auto\n";
+    print $fh "\tconsole_port auto\n";
+    print $fh "}\n";
+    close $fh;
+
+    for my $command (['ssh', 'true'], ['console'], ['expect', 'x.exp'],
+	['wait']) {
+	my ($code, $out, $err) = _run_captured("--project=$project",
+	    '--vm', 'fleet', @$command);
+	is($code, 1, "@$command fails on a stopped auto guest");
+	like($err, qr/has no (ssh|console)_port now/,
+	    'and the diagnostic names the missing port');
+    }
+
+    my ($code, $out) = _run_captured("--project=$project", '--quiet',
+	'--vm', 'fleet', 'status', 'ssh_port');
+    is($code, 0, 'status still answers for the stopped auto guest');
+    is($out, "\n", 'and the bare value is empty');
+}
+
+# 'disk info' shares the printer, so its report is data on standard
+# output too
+SKIP: {
+    my $has_qemu = `which qemu-img 2>/dev/null`;
+    skip 'qemu-img not installed', 3 unless $has_qemu;
+
+    my $project = _cache_project();
+    App::FuguVM::Disk->new("$project/.fuguvm/state")
+	->create('default', '16M')
+	or skip 'cannot create a test disk image', 3;
+
+    my ($code, $out, $err) =
+	_run_captured("--project=$project", 'disk', 'info');
+    is($code, 0, 'disk info succeeds');
+    isnt($out, '', 'disk info writes to standard output');
+    like($out, qr/^virtual-size: /m, 'as key: value lines');
 }
 
 # ============================================================
@@ -517,6 +626,33 @@ sub _cache_project
     close $fh;
 
     return $project;
+}
+
+# Run a command with both streams captured, and return the exit
+# code, the stdout text and the stderr text. Thus scriptable output
+# cannot mix with the TAP stream of this test.
+sub _run_captured
+{
+    my (@args) = @_;
+    my ($out, $err) = ('', '');
+
+    open my $saved_out, '>&', \*STDOUT or die $!;
+    close STDOUT;
+    open STDOUT, '>', \$out or die $!;
+    open my $saved_err, '>&', \*STDERR or die $!;
+    close STDERR;
+    open STDERR, '>', \$err or die $!;
+
+    my $code = App::FuguVM::CLI->run(@args);
+
+    close STDOUT;
+    open STDOUT, '>&', $saved_out or die $!;
+    close $saved_out;
+    close STDERR;
+    open STDERR, '>&', $saved_err or die $!;
+    close $saved_err;
+
+    return ($code, $out, $err);
 }
 
 # Run a command and capture stdout. This separates the scriptable

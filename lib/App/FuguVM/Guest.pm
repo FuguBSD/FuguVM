@@ -26,13 +26,17 @@ use v5.36;
 package App::FuguVM::Guest;
 
 use App::FuguVM::Arch;
+use App::FuguVM::Config;
 use App::FuguVM::Miniroot;
 use App::FuguVM::DiskCache;
 use App::FuguVM::Disk;
 use App::FuguVM::Console;
 use App::FuguVM::Proxy;
 use App::FuguVM::QMP;
+use App::FuguVM::State;
 
+use Fcntl qw(:flock);
+use Fugu::File;
 use Fugu::Random;
 use Fugu::Process;
 use Fugu::SSH;
@@ -47,6 +51,14 @@ use constant {
 
 	MEMORY_DEFAULT => '1G',
 	CPU_COUNT      => 2,
+
+	# The port lock closes the window between the probe and the
+	# record of both ports. A probe is quick, so a long wait means
+	# a wedged holder, and the probe then runs without the lock.
+	PORT_LOCK_TIMEOUT => 30,
+
+	# The bound on one 'qemu --version' run.
+	QEMU_VERSION_TIMEOUT => 10,
 };
 
 sub new ( $class, %args )
@@ -89,6 +101,11 @@ sub up ($self)
 		return EXIT_SUCCESS;
 	}
 
+	# The version gate runs one time for each invocation, before
+	# any expensive work starts.
+	my $failure = $self->_check_qemu_version;
+	return $failure if defined $failure;
+
 	# Verify the backing chain of the disk before other checks read
 	# the disk. A base image that is missing from the cache is not
 	# corruption. The unclean-shutdown check below would report it as
@@ -121,9 +138,34 @@ sub up ($self)
 	my $cache     = $self->_image_cache;
 	my $cache_key = defined $cache ? $cache->key($config) : undef;
 
-	# Restore from the installed-image cache when there is no disk yet
+	# Restore from the installed-image cache when there is no disk
+	# yet. A miss can mean that a sibling run installs this entry
+	# right now. The lock makes this run wait, and the second lookup
+	# then uses the entry that the sibling published. A run without
+	# the lock still installs correctly, because store() is
+	# write-once: it wastes an install, never the cache.
+	my $cache_lock;
 	if ( !$state->disk_exists && defined $cache_key ) {
-		$self->_cache_restore( $cache, $cache_key );
+		if ( !$self->_cache_restore( $cache, $cache_key ) ) {
+
+			# The wait can last as long as one installation,
+			# so the operator hears about it first.
+			$log->info("Taking the image-cache lock of $cache_key");
+			$cache_lock = $cache->lock_entry($cache_key);
+			if ( !defined $cache_lock ) {
+				$log->warning(
+"Image-cache lock not acquired, installing without it"
+				);
+			}
+			elsif ( $self->_cache_restore( $cache, $cache_key ) ) {
+
+				# The entry exists now, so nothing here
+				# installs. Release the lock at once: a
+				# sibling behind it needs only the entry.
+				close $cache_lock;
+				undef $cache_lock;
+			}
+		}
 	}
 
 	# Start the caching proxy for the VM installation. The VM
@@ -181,6 +223,12 @@ sub up ($self)
 		}
 	}
 
+	# Resolve and record the ports directly before the spawn. An
+	# 'up' that failed above then reserves no port for a guest
+	# that never started.
+	$failure = $self->_resolve_ports;
+	return $failure if defined $failure;
+
 	# Start the VM
 	$log->info("Starting VM...");
 
@@ -210,8 +258,8 @@ sub up ($self)
 
 		$log->info("Installing OpenBSD...");
 		my $expect = App::FuguVM::Console->new(
-			host => '127.0.0.1',
-			port => $config->{console_port},
+			host => $self->connect_address,
+			port => $self->console_port,
 		);
 
 		# Use the generated password for the installation
@@ -247,6 +295,10 @@ sub up ($self)
 		}
 		$state->clear_vm_pid;
 
+		# The runtime record stays: the restart below uses the
+		# same ports, and a sibling that resolves ports in this
+		# window must still skip them.
+
 		# Publish the installed disk as a cached base image. A VM
 		# that was force stopped can leave the disk mid-write. Thus
 		# the code skips that capture and does not publish it.
@@ -260,6 +312,13 @@ sub up ($self)
 "Skipping image cache: installation VM was force stopped"
 				);
 			}
+		}
+
+		# The entry is published, or this run cannot publish it.
+		# Either way a waiting sibling can proceed now.
+		if ( defined $cache_lock ) {
+			close $cache_lock;
+			undef $cache_lock;
 		}
 
 		# Restart the VM without the install media
@@ -523,6 +582,14 @@ sub start ($self)
 		return EXIT_ERROR;
 	}
 
+	# The version gate and the port resolution run one time for
+	# each invocation, before the spawn.
+	my $failure = $self->_check_qemu_version;
+	return $failure if defined $failure;
+
+	$failure = $self->_resolve_ports;
+	return $failure if defined $failure;
+
 	my $pid = $self->_start_qemu;
 	if ( !defined $pid ) {
 		$log->error("Failed to start VM");
@@ -540,6 +607,11 @@ sub stop ( $self, $force = 0 )
 	my $config = $self->{config};
 
 	if ( !$self->_is_running ) {
+
+		# A crashed guest cannot clear its own record and its
+		# own pid file, so the stop verb clears both here.
+		$state->clear_vm_pid;
+		$state->clear_runtime;
 		$log->info("VM '$config->{name}' is not running");
 		return EXIT_SUCCESS;
 	}
@@ -555,6 +627,7 @@ sub stop ( $self, $force = 0 )
 	if ( $self->_graceful_shutdown ) {
 		$state->mark_clean_shutdown;
 		$state->clear_vm_pid;
+		$state->clear_runtime;
 		$log->info("VM stopped");
 		return EXIT_SUCCESS;
 	}
@@ -576,6 +649,7 @@ sub _stop_unclean ($self)
 	$state->mark_unclean_shutdown;
 	$self->_force_stop;
 	$state->clear_vm_pid;
+	$state->clear_runtime;
 	$self->{log}->info("VM stopped");
 
 	return EXIT_SUCCESS;
@@ -603,10 +677,15 @@ sub status ($self)
 	return {
 		name  => $config->{name},
 		state => $running ? ( $qemu_status // 'running' ) : 'stopped',
-		pid   => $pid,
-		arch  => $config->{arch},
-		ssh_port     => $config->{ssh_port},
-		console_port => $config->{console_port},
+
+		# A dead process ID is not a fact of a stopped guest, so
+		# a pid file that a crash left behind reads as empty.
+		pid          => $running ? $pid : undef,
+		arch         => $config->{arch},
+		accel        => $self->accel,
+		bind_address => $self->bind_address,
+		ssh_port     => $self->ssh_port,
+		console_port => $self->console_port,
 		installed    => $state->is_installed ? 1 : 0,
 		disk_exists  => $state->disk_exists  ? 1 : 0,
 	};
@@ -617,14 +696,78 @@ sub is_running ($self)
 	return $self->_is_running;
 }
 
+# $self->accel:
+#	Return the recorded accelerator while the guest runs: a guest
+#	that started under --emulate runs TCG whatever the host can do
+#	now. Return the accelerator that the tool selects now in every
+#	other case. App::FuguVM::Arch->accelerator owns the choice.
+sub accel ($self)
+{
+	if ( $self->{state} && $self->_is_running ) {
+		my $recorded = $self->{state}->get_runtime->{accel};
+		return $recorded if defined $recorded;
+	}
+
+	return 'tcg' if $self->{emulate};
+
+	return $self->_arch->accelerator( $^O, _host_arch(),
+		-w '/dev/kvm' ? 1 : 0 );
+}
+
+# $self->bind_address:
+#	Return the host address of the forwarded ports. The
+#	configuration loader injects the value; the fallback only
+#	serves VM objects built without a configuration.
+sub bind_address ($self)
+{
+	return $self->{config}{bind_address}
+	    // App::FuguVM::Config::DEFAULT_BIND_ADDRESS();
+}
+
+# $self->connect_address:
+#	Return the address that the tool connects to. A bind address
+#	of 0.0.0.0 is not a destination, so the loopback address
+#	serves that one case.
+sub connect_address ($self)
+{
+	my $address = $self->bind_address;
+	return '127.0.0.1' if $address eq '0.0.0.0';
+
+	return $address;
+}
+
+# The resolved ports. Each method returns the recorded port, and
+# falls back to the configured number. It returns undef for 'auto'
+# with no record: the record dies with the run, so a stopped guest
+# has no port.
 sub ssh_port ($self)
 {
-	return $self->{config}{ssh_port};
+	return $self->_resolved_port('ssh_port');
 }
 
 sub console_port ($self)
 {
-	return $self->{config}{console_port};
+	return $self->_resolved_port('console_port');
+}
+
+sub _resolved_port ( $self, $directive )
+{
+	# The record describes the current run, so it serves only
+	# while the guest runs. A crashed guest leaves a record
+	# behind. That record must not read as a live port.
+	if ( $self->{state} && $self->_is_running ) {
+		my $recorded = $self->{state}->get_runtime->{$directive};
+		return $recorded if defined $recorded;
+	}
+
+	# The answer is one scalar, undef included: a caller builds a
+	# hash with it, and a bare return would collapse the pair.
+	my $configured = $self->{config}{$directive};
+	$configured = undef
+	    if defined $configured
+	    && $configured eq App::FuguVM::Config::AUTO_PORT();
+
+	return $configured;
 }
 
 # $self->wait_ssh($timeout, $password):
@@ -635,8 +778,8 @@ sub console_port ($self)
 sub wait_ssh ( $self, $timeout = 120, $password = undef )
 {
 	my $ssh = Fugu::SSH->new(
-		host => '127.0.0.1',
-		port => $self->{config}{ssh_port},
+		host => $self->connect_address,
+		port => $self->ssh_port,
 		user => 'root',
 		( defined $password ? ( password => $password ) : () ),
 	);
@@ -726,8 +869,8 @@ sub _install_ssh_key ( $self, $password )
 
 	# Connect with the password
 	my $ssh = Fugu::SSH->new(
-		host     => '127.0.0.1',
-		port     => $config->{ssh_port},
+		host     => $self->connect_address,
+		port     => $self->ssh_port,
 		user     => 'root',
 		password => $password,
 	);
@@ -760,8 +903,7 @@ sub _install_ssh_key ( $self, $password )
 # power off through the ACPI power button, and report the result.
 sub _graceful_shutdown ($self)
 {
-	my $config = $self->{config};
-	my $log    = $self->{log};
+	my $log = $self->{log};
 
 	# Do a best-effort filesystem sync over SSH before the code
 	# pulls the power. The sync has a hard time bound. A wedged
@@ -774,8 +916,8 @@ sub _graceful_shutdown ($self)
 		Fugu::SSH::DEFAULT_TIMEOUT() + 5,
 		sub {
 			my $ssh = Fugu::SSH->new(
-				host => '127.0.0.1',
-				port => $config->{ssh_port},
+				host => $self->connect_address,
+				port => $self->ssh_port,
 				user => 'root',
 			);
 			return $ssh->run_command('sync; sync; sync');
@@ -959,14 +1101,11 @@ sub _start_qemu ( $self, $boot_image = undef )
 		    "file=$boot_image,format=raw,if=virtio,readonly=on";
 	}
 
-	# Network with port forwarding
-	my $ssh_port = $config->{ssh_port};
-	push @cmd, '-device', 'virtio-net-pci,netdev=net0';
-	push @cmd, '-netdev', "user,id=net0,hostfwd=tcp::$ssh_port-:22";
-
-	# Serial console on telnet
-	my $console_port = $config->{console_port};
-	push @cmd, '-serial', "tcp::$console_port,server,telnet,nowait";
+	# Network with port forwarding, and the serial console on
+	# telnet
+	my $console_port = $state->get_runtime->{console_port};
+	push @cmd, $self->_network_args;
+	push @cmd, $self->_serial_args;
 
 	# QMP control socket
 	my $qmp_path = $self->_qmp_socket_path;
@@ -1016,16 +1155,44 @@ sub _start_qemu ( $self, $boot_image = undef )
 	# port closed. This check fails fast with the QEMU log, not with
 	# a long telnet timeout later.
 	if ( defined $boot_image
-		&& !$self->_wait_console_ready( $config->{console_port}, 30 ) )
+		&& !$self->_wait_console_ready( $console_port, 30 ) )
 	{
 		$self->{log}
 		    ->error( 'QEMU console port %d not listening after start',
-			$config->{console_port} );
+			$console_port );
 		$self->_dump_qemu_log($log_file);
 		return;
 	}
 
 	return $pid;
+}
+
+# $self->_network_args:
+#	Return the QEMU network arguments. The ports come from the
+#	record that _resolve_ports wrote before the spawn: the public
+#	accessors serve a running guest only, and QEMU does not run
+#	yet. The forwarded port binds to the configured host address,
+#	and the default is loopback.
+sub _network_args ($self)
+{
+	my $bind_address = $self->bind_address;
+	my $ssh_port     = $self->{state}->get_runtime->{ssh_port};
+
+	return ( '-device', 'virtio-net-pci,netdev=net0', '-netdev',
+		"user,id=net0,hostfwd=tcp:$bind_address:" . "$ssh_port-:22",
+	);
+}
+
+# $self->_serial_args:
+#	Return the QEMU serial-console arguments: a telnet listener on
+#	the bind address and the recorded console port.
+sub _serial_args ($self)
+{
+	my $bind_address = $self->bind_address;
+	my $console_port = $self->{state}->get_runtime->{console_port};
+
+	return ( '-serial',
+		"tcp:$bind_address:$console_port,server,telnet,nowait" );
 }
 
 # $self->_wait_console_ready($port, $timeout):
@@ -1041,7 +1208,7 @@ sub _wait_console_ready ( $self, $port, $timeout )
 		$timeout, 0.2,
 		sub {
 			my $sock = IO::Socket::INET->new(
-				PeerAddr => '127.0.0.1',
+				PeerAddr => $self->connect_address,
 				PeerPort => $port,
 				Proto    => 'tcp',
 				Timeout  => 2,
@@ -1081,19 +1248,14 @@ sub _dump_qemu_log ( $self, $log_file )
 }
 
 # $self->_accel_args():
-#	Pick the QEMU accelerator for the host. Use KVM on Linux with
-#	a writable /dev/kvm, and HVF on Darwin, when the host machine
-#	runs the instruction set of the guest. Use TCG software
-#	emulation in every other case, or when --emulate was given.
+#	Return the accelerator arguments, with the matching CPU model.
 #	Host CPU passthrough is only valid with hardware acceleration.
-#	TCG needs the named model of the architecture.
+#	TCG needs the named model of the architecture. The choice
+#	itself comes from accel.
 sub _accel_args ($self)
 {
-	my $arch = $self->_arch;
-	my $accel =
-	    $self->{emulate}
-	    ? 'tcg'
-	    : $arch->accelerator( $^O, _host_arch(), -w '/dev/kvm' ? 1 : 0 );
+	my $arch  = $self->_arch;
+	my $accel = $self->accel;
 
 	$self->{log}->debug("Using QEMU accelerator: $accel")
 	    if $self->{log};
@@ -1147,6 +1309,223 @@ sub _require_qemu ($self)
 		) );
 
 	return 0;
+}
+
+# $self->_check_qemu_version:
+#	Enforce the optional qemu_version directive, once for up and
+#	start. Return undef when the check passes, and when no
+#	directive exists. Return EXIT_CONFIG_ERROR otherwise. A pinned
+#	version that the tool cannot verify fails closed: an absent
+#	binary, and output with no version in it, both refuse the
+#	start. The match runs component by component, over the
+#	components that the directive names: 9.0 accepts 9.0.4 and
+#	refuses 9.1.0.
+sub _check_qemu_version ($self)
+{
+	my $pinned = $self->{config}{qemu_version};
+	return if !defined $pinned;
+
+	my $reported = $self->_qemu_version;
+	if ( !defined $reported ) {
+		$self->{log}->error(
+"Cannot read the QEMU version to check against the pinned $pinned"
+		);
+		return EXIT_CONFIG_ERROR;
+	}
+
+	my @want = split /\./, $pinned;
+	my @have = split /\./, $reported;
+	for my $i ( 0 .. $#want ) {
+		next if defined $have[$i] && $have[$i] == $want[$i];
+
+		$self->{log}->error(
+"QEMU version $reported does not match the pinned $pinned"
+		);
+		return EXIT_CONFIG_ERROR;
+	}
+
+	return;
+}
+
+# $self->_qemu_version:
+#	Return the version that the QEMU binary reports, or undef. The
+#	version is the first dotted-decimal token of the first output
+#	line.
+sub _qemu_version ($self)
+{
+	my $binary = $self->_qemu_path;
+	return if !defined $binary;
+
+	my $result = Fugu::Process->run(
+		cmd     => [ $binary, '--version' ],
+		timeout => QEMU_VERSION_TIMEOUT,
+	);
+	return if !$result->{success};
+
+	my ($line) = split /\n/, $result->{stdout} // '';
+	return if !defined $line;
+
+	my ($version) = $line =~ /([0-9]+(?:\.[0-9]+)+)/;
+
+	return $version;
+}
+
+# $self->_resolve_ports:
+#	Resolve both host ports, and record them with the selected
+#	accelerator, before the tool spawns QEMU. A number resolves to
+#	itself, and 'auto' takes a free port of the fixed range of its
+#	directive. Return undef on success, and EXIT_ERROR when a range
+#	is exhausted.
+#
+#	The port lock closes the window between the probe and the
+#	record. One window stays open: a foreign process can take a
+#	probed port before QEMU binds it. QEMU then fails to start, and
+#	the tool reports that failure with the QEMU log.
+sub _resolve_ports ($self)
+{
+	my $config = $self->{config};
+
+	my %range = (
+		ssh_port     => App::FuguVM::Config::DEFAULT_SSH_PORT(),
+		console_port => App::FuguVM::Config::DEFAULT_CONSOLE_PORT(),
+	);
+
+	my $lock  = $self->_lock_ports;
+	my $taken = $self->_taken_ports;
+
+	# The fixed ports of every VM declaration of the project are
+	# taken too, whether the declared guest runs now or not. The
+	# loader injects the set, like cache_dir.
+	%$taken = ( %$taken, %{ $config->{declared_ports} // {} } );
+
+	# The fixed ports of this guest are taken too: a probe for one
+	# directive must not select the number that the other directive
+	# holds.
+	for my $directive (qw(ssh_port console_port)) {
+		my $configured = $config->{$directive};
+		$taken->{$configured} = 1
+		    if defined $configured
+		    && $configured ne App::FuguVM::Config::AUTO_PORT();
+	}
+
+	my %resolved;
+	for my $directive (qw(ssh_port console_port)) {
+		my $configured = $config->{$directive};
+
+		if ( defined $configured
+			&& $configured eq App::FuguVM::Config::AUTO_PORT() )
+		{
+			my $first = $range{$directive};
+			my $last =
+			    $first + App::FuguVM::Config::AUTO_PORT_COUNT() - 1;
+
+			my $port = $self->_free_port( $first, $last, $taken );
+			if ( !defined $port ) {
+				$self->{log}->error(
+"No free $directive in the range $first-$last"
+				);
+				close $lock if defined $lock;
+				return EXIT_ERROR;
+			}
+			$resolved{$directive} = $port;
+		}
+		else {
+			$resolved{$directive} = $configured;
+		}
+
+		$taken->{ $resolved{$directive} } = 1
+		    if defined $resolved{$directive};
+	}
+
+	$self->{state}->set_runtime( accel => $self->accel, %resolved );
+	close $lock if defined $lock;
+
+	return;
+}
+
+# $self->_free_port($first, $last, $taken):
+#	Return the first port of the range that binds on the bind
+#	address and that $taken does not hold. Return undef for an
+#	exhausted range.
+sub _free_port ( $self, $first, $last, $taken )
+{
+	require IO::Socket::INET;
+
+	for my $port ( $first .. $last ) {
+		next if $taken->{$port};
+
+		my $sock = IO::Socket::INET->new(
+			LocalAddr => $self->bind_address,
+			LocalPort => $port,
+			Proto     => 'tcp',
+			Listen    => 1,
+		);
+		next if !defined $sock;
+
+		$sock->close;
+		return $port;
+	}
+
+	return;
+}
+
+# $self->_taken_ports:
+#	Return the recorded ports of every guest of the project, as a
+#	hash reference keyed by port. The method enumerates the state
+#	directory, like App::FuguVM::CLI::_disks_backed_by: a record
+#	counts whether a 'vm' block still declares its guest or not.
+sub _taken_ports ($self)
+{
+	my %taken;
+
+	my $state_dir = $self->{state}->state_dir;
+	return \%taken if !-d $state_dir;
+
+	opendir my $dh, $state_dir or return \%taken;
+	my @names = sort grep { !/^\./ && -d "$state_dir/$_" } readdir $dh;
+	closedir $dh;
+
+	for my $name (@names) {
+		my $sibling = App::FuguVM::State->new( $state_dir, $name )
+		    or next;
+		my $runtime = $sibling->get_runtime;
+		for my $directive (qw(ssh_port console_port)) {
+			my $port = $runtime->{$directive};
+			$taken{$port} = 1 if defined $port;
+		}
+	}
+
+	return \%taken;
+}
+
+# $self->_lock_ports:
+#	Return the locked handle of ports.lock, or undef on the
+#	deadline. The lock file lives in the cache directory, so every
+#	project that shares that directory probes one port at a time.
+#	The record exclusion of _taken_ports covers this project only.
+#	A collision with an other project surfaces when QEMU binds the
+#	port, as a reported startup failure. The caller probes without
+#	the lock when the deadline elapses: a wedged holder must not
+#	fail a run.
+sub _lock_ports ($self)
+{
+	my $dir = $self->_cache_dir;
+	Fugu::File->ensure_dir($dir) or return;
+
+	my $path = "$dir/ports.lock";
+	open my $fh, '>>', $path or do {
+		$self->{log}->warning("Cannot open $path: $!");
+		return;
+	};
+
+	my $locked = Fugu::Timeout::bounded( PORT_LOCK_TIMEOUT,
+		sub { flock $fh, LOCK_EX } );
+	return $fh if $locked;
+
+	close $fh;
+	$self->{log}->warning("Port lock not acquired, probing without it");
+
+	return;
 }
 
 # $self->_check_installed_arch:

@@ -193,14 +193,42 @@ Stop the VM.
 With
 .Fl f ,
 stop it with force.
-.It Cm status
-Show the VM status as
+.It Cm status Op Ar key
+Write the VM status to standard output,
+as one
 .Ar key : value
-lines.
-The lines include
-.Ar ssh_port
+line for each key,
+in sorted key order.
+The lines are data,
+so
+.Fl Fl quiet
+does not suppress them.
+The key set is stable:
+.Ar accel , arch , bind_address , console_port , disk_exists ,
+.Ar installed , name , pid , ssh_port ,
 and
-.Ar console_port .
+.Ar state .
+A value can be empty,
+and an empty value means
+.Dq not now :
+a stopped guest has no
+.Ar pid ,
+and no port for a directive of
+.Cm auto .
+.Pp
+With
+.Ar key ,
+write the bare value of that one key,
+with no key name and no colon.
+Thus a script reads one port without a text filter.
+An unknown
+.Ar key
+causes an exit with code 2,
+and the diagnostic names every valid key.
+.Cm disk info
+follows the same
+.Ar key : value
+contract on standard output.
 .It Cm ssh Op Ar command
 Open an interactive SSH session to the VM as root,
 or run
@@ -210,6 +238,13 @@ Authentication uses the SSH agent.
 .It Cm console
 Show how to connect to the VM serial console
 .Pq with Xr telnet 1 .
+The advice names the connect address of the guest:
+the
+.Ar bind_address ,
+or
+.Li 127.0.0.1
+when the ports bind to
+.Li 0.0.0.0 .
 .It Cm expect Ar script Op Ar argument ...
 Run an
 .Xr expect 1
@@ -433,11 +468,13 @@ Project configuration:
 .Ar cache_dir ,
 .Ar state_dir ,
 .Ar default_vm ,
-.Ar image_cache .
+.Ar image_cache ,
+.Ar qemu_version ,
+.Ar bind_address .
 .It Pa .fuguvm/vms/ Ns Ar name Ns Pa .conf
 Per-VM configuration:
 .Ar name , arch , version , memory , disk_size , ssh_port ,
-.Ar console_port .
+.Ar console_port , bind_address .
 .It Pa .fuguvm/state/
 Runtime state
 .Pq PID files, sockets, disk images .
@@ -465,6 +502,83 @@ on
 .Cm up
 overrides all of them.
 .Pp
+.Ar ssh_port
+and
+.Ar console_port
+take a decimal number from 1 to 65535,
+or the word
+.Cm auto .
+With
+.Cm auto ,
+.Cm up
+and
+.Cm start
+take a free host port from a fixed range, and record it.
+Each range holds 100 ports.
+It starts at the default port of its directive
+.Pq 2222 for SSH, 4444 for the console .
+The probe does not take a fixed port that a VM declaration of the
+project holds, whether that guest runs now or not.
+Read the recorded port with
+.Cm status .
+The record dies with the run:
+.Cm stop
+clears it,
+and a later
+.Cm start
+resolves again.
+An exhausted range causes an exit with code 1.
+A connection command
+.Pq Cm ssh , console , expect , wait
+against a stopped guest with a directive of
+.Cm auto
+also fails with exit code 1,
+because such a guest has no port.
+.Pp
+.Ar bind_address
+names the host address of every forwarded port,
+as one IPv4 address in dotted-decimal form.
+The default is
+.Li 127.0.0.1 .
+A host name is invalid.
+The directive can be in a
+.Ar vm
+block,
+in the project
+.Pa .fuguvmrc ,
+or in the global
+.Pa ~/.fuguvmrc ,
+with that precedence.
+.Pp
+.Ar qemu_version
+pins the version of the QEMU system binary,
+as one or more dot-separated decimal numbers.
+.Cm up
+and
+.Cm start
+run the binary with
+.Fl Fl version
+and compare component by component,
+over the components that the directive names:
+.Li 9.0
+accepts
+.Li 9.0.4
+and refuses
+.Li 9.1.0 .
+A mismatch,
+an absent binary,
+and output with no version in it,
+each cause an exit with code 3.
+Without the directive,
+.Nm
+checks nothing and does not run the binary.
+.Nm
+reads the directive from the project
+.Pa .fuguvmrc
+or the global
+.Pa ~/.fuguvmrc ,
+with the project first.
+.Pp
 A line that the configuration grammar does not accept is an error that
 names the file and the line, and
 .Nm
@@ -489,14 +603,27 @@ Success.
 General error.
 .It 2
 Invalid arguments.
+An unknown
+.Cm status
+key also gives this code.
 .It 3
 Configuration error, or not in an
 .Nm
 project.
 An unknown
 .Ar arch
-value and an absent QEMU binary for the architecture also give this
-code.
+value,
+an absent QEMU binary for the architecture,
+an invalid
+.Ar bind_address ,
+.Ar ssh_port ,
+.Ar console_port
+or
+.Ar qemu_version
+value,
+and a QEMU version that does not match the pinned
+.Ar qemu_version
+also give this code.
 .It 4
 VM not found.
 .It 5
@@ -550,6 +677,24 @@ $ fuguvm --vm openbsd-amd64 up
 $ fuguvm --vm openbsd-amd64 ssh "uname -m"
 amd64
 .Ed
+.Pp
+Declare a fleet of two guests with automatic ports,
+start one,
+and read its SSH port:
+.Bd -literal -offset indent
+vm "scenario-1" {
+	ssh_port     auto
+	console_port auto
+}
+vm "scenario-2" {
+	ssh_port     auto
+	console_port auto
+}
+
+$ fuguvm --vm scenario-1 up
+$ fuguvm --vm scenario-1 status ssh_port
+2222
+.Ed
 .Sh SEE ALSO
 .Xr expect 1 ,
 .Xr ssh 1 ,
@@ -580,17 +725,17 @@ the password stays after
 .Cm destroy ,
 and it changes only when the base key changes.
 .Pp
-This is not a localhost-only secret.
 The guest permits password root login.
 .Nm
-gives QEMU the
-.Ar ssh_port
-and
-.Ar console_port
-values with no bind address.
-Thus the forwarded SSH port and the telnet serial console listen on
-each host interface.
-Treat a VM that runs as open to all persons who can reach the host.
+binds the forwarded SSH port and the telnet serial console to
+.Ar bind_address ,
+and the default is
+.Li 127.0.0.1 .
+Thus only the host itself reaches a guest.
+.Ar bind_address 0.0.0.0
+makes both ports listen on each host interface.
+Treat such a VM as open to all persons who can reach the host.
+The password is then not a localhost-only secret.
 Apply the same rule to a
 .Ar cache_dir
 that has content.

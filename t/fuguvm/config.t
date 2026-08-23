@@ -498,6 +498,218 @@ is(App::FuguVM::Config::DEFAULT_VERSION(), '7.8', 'DEFAULT_VERSION is 7.8');
     is($vm->{memory}, 4096, 'project VM config overrides global');
 }
 
+# The bind_address directive: the merge, the fallback chain, the
+# default, and the validation at the configuration boundary
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $gh, '>', "$homedir/.fuguvmrc";
+    print $gh "bind_address 10.0.0.1\n";
+    close $gh;
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"plain\" {\n}\n";
+    print $fh "vm \"pinned\" {\n";
+    print $fh "    bind_address 0.0.0.0\n";
+    print $fh "}\n";
+    close $fh;
+
+    my $config = App::FuguVM::Config->new($tmpdir);
+
+    is(App::FuguVM::Config::DEFAULT_BIND_ADDRESS(), '127.0.0.1',
+	'DEFAULT_BIND_ADDRESS is 127.0.0.1');
+    is($config->load_vm('pinned')->{bind_address}, '0.0.0.0',
+	'bind_address in a vm block reaches the merged configuration');
+    is($config->load_vm('plain')->{bind_address}, '10.0.0.1',
+	'the enclosing file serves a vm block that omits it');
+
+    # The project file wins over the global file
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "bind_address 192.168.1.1\n";
+    print $fh "vm \"plain\" {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('plain')->{bind_address}, '192.168.1.1',
+	'the project file wins over the global file');
+
+    # The default is loopback
+    open $gh, '>', "$homedir/.fuguvmrc";
+    close $gh;
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"plain\" {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('plain')->{bind_address}, '127.0.0.1',
+	'the default is 127.0.0.1');
+
+    # An invalid value fails, and error names the value. A component
+    # with a leading zero reads as octal in inet_aton, so it fails
+    # too.
+    for my $bad ('10.0.0.256', 'vm.example.org', '1.2.3', '1.2.3.4.5',
+	'010.0.0.1') {
+	open $fh, '>', "$tmpdir/.fuguvmrc";
+	print $fh "vm \"plain\" {\n";
+	print $fh "    bind_address $bad\n";
+	print $fh "}\n";
+	close $fh;
+	$config = App::FuguVM::Config->new($tmpdir);
+	is($config->load_vm('plain'), undef,
+	    "bind_address $bad makes load_vm return undef");
+	like($config->error, qr/\Q$bad\E/, 'and error names the value');
+    }
+}
+
+# The two port directives: the word auto survives the merge, and an
+# other value fails with a message that names the directive
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"fleet\" {\n";
+    print $fh "    ssh_port     auto\n";
+    print $fh "    console_port auto\n";
+    print $fh "}\n";
+    close $fh;
+
+    my $config = App::FuguVM::Config->new($tmpdir);
+    my $vm = $config->load_vm('fleet');
+
+    is(App::FuguVM::Config::AUTO_PORT(), 'auto', 'AUTO_PORT is auto');
+    is(App::FuguVM::Config::AUTO_PORT_COUNT(), 100,
+	'AUTO_PORT_COUNT is 100');
+    is($vm->{ssh_port}, 'auto', 'ssh_port auto survives the merge');
+    is($vm->{console_port}, 'auto', 'console_port auto survives the merge');
+
+    for my $bad (0, 65536, 'yes', '02222') {
+	open $fh, '>', "$tmpdir/.fuguvmrc";
+	print $fh "vm \"fleet\" {\n";
+	print $fh "    ssh_port $bad\n";
+	print $fh "}\n";
+	close $fh;
+	$config = App::FuguVM::Config->new($tmpdir);
+	is($config->load_vm('fleet'), undef,
+	    "ssh_port $bad makes load_vm return undef");
+	like($config->error, qr/ssh_port/, 'and error names the directive');
+    }
+
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"fleet\" {\n";
+    print $fh "    console_port never\n";
+    print $fh "}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('fleet'), undef,
+	'an invalid console_port makes load_vm return undef');
+    like($config->error, qr/console_port/, 'and error names the directive');
+}
+
+# The qemu_version directive: the project value, the global value,
+# undef, and the validation of the value
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"plain\" {\n}\n";
+    close $fh;
+
+    my $config = App::FuguVM::Config->new($tmpdir);
+    is($config->qemu_version, undef,
+	'qemu_version returns undef with no directive');
+    is($config->load_vm('plain')->{qemu_version}, undef,
+	'and the per-VM config carries no value');
+
+    open my $gh, '>', "$homedir/.fuguvmrc";
+    print $gh "qemu_version 8.2\n";
+    close $gh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->qemu_version, '8.2', 'the global value serves');
+
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "qemu_version 9.0.4\n";
+    print $fh "vm \"plain\" {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->qemu_version, '9.0.4', 'the project value wins');
+    is($config->load_vm('plain')->{qemu_version}, '9.0.4',
+	'and it reaches the per-VM config');
+
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "qemu_version banana\n";
+    print $fh "vm \"plain\" {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('plain'), undef,
+	'an invalid qemu_version makes load_vm return undef');
+    like($config->error, qr/banana/, 'and error names the value');
+
+    # A pin inside a VM declaration would silently not apply, so it
+    # is an error and not a merge
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"plain\" {\n";
+    print $fh "    qemu_version 9.0\n";
+    print $fh "}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('plain'), undef,
+	'qemu_version in a vm block makes load_vm return undef');
+    like($config->error, qr/qemu_version/, 'and error names the directive');
+}
+
+# The fixed ports of every VM declaration, for the port probe
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $gh, '>', "$homedir/.fuguvmrc";
+    print $gh "vm \"global\" {\n";
+    print $gh "    ssh_port     2400\n";
+    print $gh "    console_port 4600\n";
+    print $gh "}\n";
+    close $gh;
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm \"pinned\" {\n";
+    print $fh "    ssh_port     2300\n";
+    print $fh "    console_port 4500\n";
+    print $fh "}\n";
+    print $fh "vm \"bare\" {\n}\n";
+    print $fh "vm \"fleet\" {\n";
+    print $fh "    ssh_port     auto\n";
+    print $fh "    console_port auto\n";
+    print $fh "}\n";
+    close $fh;
+
+    open my $vh, '>', "$tmpdir/.fuguvm/vms/filed.conf";
+    print $vh "ssh_port = 2500\n";
+    close $vh;
+
+    my $config = App::FuguVM::Config->new($tmpdir);
+    my $ports = $config->declared_ports;
+
+    ok($ports->{2300} && $ports->{4500},
+	'declared_ports holds the fixed ports of a project block');
+    ok($ports->{2400} && $ports->{4600},
+	'and the fixed ports of a global block');
+    ok($ports->{2222} && $ports->{4444},
+	'a declaration that omits a directive holds the default port');
+    ok($ports->{2500}, 'a vms/ file counts too');
+    ok(!$ports->{auto}, 'the word auto is not a port');
+
+    is_deeply($config->load_vm('fleet')->{declared_ports}, $ports,
+	'load_vm folds the set into the per-VM configuration');
+}
+
 # Test VM block with unquoted name
 {
     my $tmpdir = tempdir(CLEANUP => 1);

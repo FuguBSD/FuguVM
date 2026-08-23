@@ -330,7 +330,406 @@ SKIP: {
 	    'restore misses once the base is gone');
 }
 
+# The bind address and the connect address
+{
+	my $vm = App::FuguVM::Guest->new(
+	    config => { bind_address => '10.0.0.1' });
+	is($vm->bind_address, '10.0.0.1',
+	    'bind_address returns the configured address');
+	is($vm->connect_address, '10.0.0.1',
+	    'connect_address returns the bind address');
+
+	my $open = App::FuguVM::Guest->new(
+	    config => { bind_address => '0.0.0.0' });
+	is($open->connect_address, '127.0.0.1',
+	    'connect_address is loopback for 0.0.0.0');
+
+	my $bare = App::FuguVM::Guest->new(config => {});
+	is($bare->bind_address, '127.0.0.1',
+	    'a config without bind_address falls back to the default');
+}
+
+# The resolved ports: the record wins, the configured number serves
+# without one, and auto with no record has no port
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', ssh_port => 2222,
+		    console_port => 4444 },
+		state => $state,
+	);
+
+	is($vm->ssh_port, 2222,
+	    'ssh_port returns the configured number with no record');
+	is($vm->console_port, 4444, 'console_port does the same');
+
+	# The record serves while the guest runs
+	$state->set_runtime(
+	    accel => 'tcg', ssh_port => 2250, console_port => 4470);
+	$state->vm_pidfile->write_pid($$);
+	is($vm->ssh_port, 2250, 'the recorded port wins while running');
+	is($vm->console_port, 4470, 'for both directives');
+
+	# A record that a crash left behind must not read as a live
+	# port: the guest is gone, so the configured value serves.
+	$state->clear_vm_pid;
+	is($vm->ssh_port, 2222,
+	    'a stale record does not serve a stopped guest');
+
+	my $fleet = App::FuguVM::Guest->new(
+		config => { name => 'default', ssh_port => 'auto',
+		    console_port => 'auto' },
+		state => $state,
+	);
+	is($fleet->ssh_port, undef,
+	    'auto reports no port for a stopped guest, stale record or not');
+	is($fleet->console_port, undef, 'for both directives');
+
+	# stop on a guest that does not run clears the stale record
+	$fleet->{log} = TestLog->new;
+	is($fleet->stop, App::FuguVM::Guest::EXIT_SUCCESS(),
+	    'stop succeeds on a guest that does not run');
+	is_deeply($state->get_runtime, {},
+	    'and it clears the record that a crash left behind');
+
+	$state->clear_runtime;
+	is($fleet->ssh_port, undef, 'auto with no record has no port');
+}
+
+# The free-port probe
+{
+	my $vm = App::FuguVM::Guest->new(
+	    config => { bind_address => '127.0.0.1' });
+
+	my $port = $vm->_free_port(41000, 41099, {});
+	ok(defined $port && $port >= 41000 && $port <= 41099,
+	    '_free_port returns a port of the range that binds');
+
+	my $next = $vm->_free_port(41000, 41099, { $port => 1 });
+	isnt($next, $port, '_free_port skips a port the caller names as taken');
+
+	# Fill a short range with listening sockets. The test opens
+	# them itself, so it needs no guest. A base whose ports are
+	# already busy moves up, so the test stays free of the other
+	# users of the machine.
+	require IO::Socket::INET;
+	my @socks;
+	my $base;
+	BASE: for (my $candidate = 42000; $candidate < 50000;
+	    $candidate += 10) {
+		@socks = ();
+		for my $p ($candidate .. $candidate + 2) {
+			my $sock = IO::Socket::INET->new(
+				LocalAddr => '127.0.0.1',
+				LocalPort => $p,
+				Proto     => 'tcp',
+				Listen    => 1,
+			);
+			if (!defined $sock) {
+				next BASE;
+			}
+			push @socks, $sock;
+		}
+		$base = $candidate;
+		last;
+	}
+	ok(defined $base, 'three consecutive ports to fill');
+	is($vm->_free_port($base, $base + 2, {}), undef,
+	    '_free_port returns undef for a range that sockets fill');
+	$_->close for @socks;
+}
+
+# Port resolution records the ports and the accelerator
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'arm64',
+		    ssh_port => 2299, console_port => 4499,
+		    cache_dir => "$root/cache" },
+		state => $state,
+		log   => TestLog->new,
+	);
+
+	is($vm->_resolve_ports, undef, '_resolve_ports succeeds');
+	my $runtime = $state->get_runtime;
+	is($runtime->{ssh_port}, 2299,
+	    'a configured number resolves to itself');
+	is($runtime->{console_port}, 4499, 'for both directives');
+	like($runtime->{accel}, qr/^(hvf|kvm|tcg)$/,
+	    'and the record holds the accelerator');
+	ok(-f "$root/cache/ports.lock", 'the port lock file exists');
+
+	# A sibling record excludes its ports from the probe
+	my $sibling = App::FuguVM::State->new("$root/state", 'other');
+	$sibling->set_runtime(
+	    accel => 'tcg', ssh_port => 2222, console_port => 4444);
+
+	my $fleet_state = App::FuguVM::State->new("$root/state", 'fleet');
+	my $fleet = App::FuguVM::Guest->new(
+		config => { name => 'fleet', arch => 'arm64',
+		    ssh_port => 'auto', console_port => 'auto',
+		    cache_dir => "$root/cache" },
+		state => $fleet_state,
+		log   => TestLog->new,
+	);
+	is($fleet->_resolve_ports, undef, '_resolve_ports resolves auto');
+	my $resolved = $fleet_state->get_runtime;
+	ok($resolved->{ssh_port} >= 2222 && $resolved->{ssh_port} <= 2321,
+	    'auto takes a port of the SSH range');
+	isnt($resolved->{ssh_port}, 2222,
+	    'and skips the port that a sibling records');
+	ok($resolved->{console_port} >= 4444
+	    && $resolved->{console_port} <= 4543,
+	    'auto takes a port of the console range');
+	isnt($resolved->{console_port}, 4444,
+	    'and skips the console port of the sibling');
+
+	$fleet_state->vm_pidfile->write_pid($$);
+	is($fleet->ssh_port, $resolved->{ssh_port},
+	    'ssh_port returns the recorded port of the running guest');
+	$fleet_state->clear_vm_pid;
+
+	# A probe must not select the fixed port of the other directive
+	# of the same guest, and must not select a fixed port of a
+	# declared sibling
+	my $mixed_state = App::FuguVM::State->new("$root/state", 'mixed');
+	my $mixed = App::FuguVM::Guest->new(
+		config => { name => 'mixed', arch => 'arm64',
+		    ssh_port => 'auto', console_port => 2223,
+		    declared_ports => { 2224 => 1 },
+		    cache_dir => "$root/cache" },
+		state => $mixed_state,
+		log   => TestLog->new,
+	);
+	is($mixed->_resolve_ports, undef,
+	    '_resolve_ports resolves a mixed declaration');
+	my $mixed_ports = $mixed_state->get_runtime;
+	isnt($mixed_ports->{ssh_port}, 2223,
+	    'auto skips the fixed port of the other directive');
+	isnt($mixed_ports->{ssh_port}, 2224,
+	    'auto skips a declared fixed port of the project');
+	is($mixed_ports->{console_port}, 2223,
+	    'and the fixed port resolves to itself');
+
+	# An exhausted range is a diagnosed failure, not a hang. No
+	# host interface holds the documentation address, so no port
+	# of the range binds.
+	my $dead_state = App::FuguVM::State->new("$root/state", 'dead');
+	my $dead = App::FuguVM::Guest->new(
+		config => { name => 'dead', arch => 'arm64',
+		    ssh_port => 'auto', console_port => 'auto',
+		    bind_address => '192.0.2.1',
+		    cache_dir => "$root/cache" },
+		state => $dead_state,
+		log   => TestLog->new,
+	);
+	is($dead->_resolve_ports, App::FuguVM::Guest::EXIT_ERROR(),
+	    'an exhausted range gives EXIT_ERROR');
+	like(join("\n", @{ $dead->{log}{errors} }), qr/2222-2321/,
+	    'and the message names the range');
+
+	# The port lock is exclusive across processes
+	my $locked = $fleet->_lock_ports;
+	ok(defined $locked, '_lock_ports returns a handle');
+	is(_flock_in_child("$root/cache/ports.lock"), 0,
+	    'a child cannot take the held lock');
+	close $locked;
+	is(_flock_in_child("$root/cache/ports.lock"), 1,
+	    'the lock is free once the handle closes');
+}
+
+# The accelerator answer: the record wins for a running guest, and
+# the current selection serves a stopped one
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'arm64' },
+		state  => $state,
+	);
+
+	like($vm->accel, qr/^(hvf|kvm|tcg)$/,
+	    'accel returns a known name for a stopped guest');
+
+	$state->set_runtime(
+	    accel => 'kvm', ssh_port => 2222, console_port => 4444);
+	$state->vm_pidfile->write_pid($$);
+	is($vm->accel, 'kvm', 'accel returns the recorded value while running');
+	$state->clear_vm_pid;
+
+	my $emulated = App::FuguVM::Guest->new(
+		config  => { name => 'default', arch => 'arm64' },
+		state   => $state,
+		emulate => 1,
+	);
+	is($emulated->accel, 'tcg', '--emulate selects TCG for a stopped guest');
+}
+
+# The QEMU network and serial arguments carry the bind address and
+# the recorded ports. This assembly enforces the loopback default.
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	$state->set_runtime(
+	    accel => 'tcg', ssh_port => 2299, console_port => 4499);
+
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'arm64',
+		    bind_address => '127.0.0.1' },
+		state => $state,
+	);
+	is(($vm->_network_args)[3],
+	    'user,id=net0,hostfwd=tcp:127.0.0.1:2299-:22',
+	    'the hostfwd rule carries the bind address and the SSH port');
+	is(($vm->_serial_args)[1],
+	    'tcp:127.0.0.1:4499,server,telnet,nowait',
+	    'the serial listener carries the bind address and the port');
+
+	my $open = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'arm64',
+		    bind_address => '0.0.0.0' },
+		state => $state,
+	);
+	like(($open->_network_args)[3],
+	    qr/hostfwd=tcp:0\.0\.0\.0:2299-:22/,
+	    'bind_address 0.0.0.0 reaches the hostfwd rule');
+}
+
+# The version gate
+{
+	require App::FuguVM::State;
+
+	my $bindir = tempdir(CLEANUP => 1);
+	my $stub = "$bindir/qemu-system-x86_64";
+	open my $fh, '>', $stub or die "Cannot write $stub: $!";
+	print $fh "#!/bin/sh\n";
+	print $fh "echo run >> '$bindir/count'\n";
+	print $fh "echo 'QEMU emulator version 9.0.4 (v9.0.4)'\n";
+	close $fh;
+	chmod 0755, $stub or die "Cannot chmod $stub: $!";
+	local $ENV{PATH} = $bindir;
+
+	my $gate = sub ($version) {
+		my $vm = App::FuguVM::Guest->new(
+			config => { name => 'default', arch => 'amd64',
+			    ( defined $version
+				? ( qemu_version => $version ) : () ) },
+			log => TestLog->new,
+		);
+		return $vm;
+	};
+
+	# No directive checks nothing and runs no command
+	is($gate->(undef)->_check_qemu_version, undef,
+	    '_check_qemu_version passes with no directive');
+	ok(!-e "$bindir/count", 'and it runs no command');
+
+	is($gate->('9.0')->_check_qemu_version, undef,
+	    '9.0 accepts a reported 9.0.4');
+	is($gate->('9.0.4')->_check_qemu_version, undef,
+	    '9.0.4 accepts a reported 9.0.4');
+	ok(-e "$bindir/count", 'the check runs the binary');
+
+	is($gate->('9.1')->_check_qemu_version,
+	    App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    '9.1 refuses a reported 9.0.4');
+	is($gate->('9.0.5')->_check_qemu_version,
+	    App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    'a longer pin than the report also refuses');
+	my $refused = $gate->('9.1');
+	$refused->_check_qemu_version;
+	like(join("\n", @{ $refused->{log}{errors} }), qr/9\.0\.4.*9\.1/,
+	    'and the message names both versions');
+
+	# Output with no version in it fails closed
+	open $fh, '>', $stub or die "Cannot write $stub: $!";
+	print $fh "#!/bin/sh\n";
+	print $fh "echo 'no version here'\n";
+	close $fh;
+	is($gate->('9.0')->_check_qemu_version,
+	    App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    'output with no version in it refuses');
+
+	# An absent binary fails closed
+	my $empty = tempdir(CLEANUP => 1);
+	local $ENV{PATH} = $empty;
+	is($gate->('9.0')->_check_qemu_version,
+	    App::FuguVM::Guest::EXIT_CONFIG_ERROR(),
+	    'an absent binary refuses');
+}
+
+# The status report holds every key, for a stopped guest and for a
+# guest with a record
+{
+	require App::FuguVM::State;
+
+	my @keys = qw(accel arch bind_address console_port disk_exists
+	    installed name pid ssh_port state);
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'amd64',
+		    ssh_port => 'auto', console_port => 'auto',
+		    bind_address => '127.0.0.1' },
+		state => $state,
+	);
+
+	my $status = $vm->status;
+	for my $key (@keys) {
+		ok(exists $status->{$key}, "a stopped guest reports $key");
+	}
+	is($status->{state}, 'stopped', 'the guest is stopped');
+	is($status->{ssh_port}, undef, 'auto with no record has no port');
+	is($status->{bind_address}, '127.0.0.1',
+	    'status reports the bind address');
+
+	$state->set_runtime(
+	    accel => 'tcg', ssh_port => 2255, console_port => 4455);
+	$state->vm_pidfile->write_pid($$);
+	$status = $vm->status;
+	for my $key (@keys) {
+		ok(exists $status->{$key}, "a running guest reports $key");
+	}
+	is($status->{ssh_port}, 2255, 'status reports the recorded port');
+	is($status->{console_port}, 4455, 'for both directives');
+	is($status->{accel}, 'tcg', 'status reports the recorded accelerator');
+	$state->clear_vm_pid;
+}
+
 done_testing();
+
+# _flock_in_child($path):
+#	Try a non-blocking exclusive flock on $path from a child
+#	process. Return 1 when the child took the lock, and 0 when an
+#	other holder refused it. The child exits through POSIX::_exit,
+#	so it runs no END block of the test harness.
+sub _flock_in_child ($path)
+{
+	require Fcntl;
+	require POSIX;
+
+	my $pid = fork // die "Cannot fork: $!";
+	if ($pid == 0) {
+		open my $fh, '>>', $path or POSIX::_exit(0);
+		my $got =
+		    flock($fh, Fcntl::LOCK_EX() | Fcntl::LOCK_NB()) ? 1 : 0;
+		POSIX::_exit($got);
+	}
+
+	waitpid $pid, 0;
+	return $? >> 8;
+}
 
 # Minimal log stub: it counts warnings for _bounded and keeps errors.
 # Thus the tests can assert on diagnostics.

@@ -27,10 +27,19 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 # Optional: the default VM name when you do not specify one
 # default_vm default
 
+# Optional: pin the version of the QEMU system binary. With the
+# directive, 'fuguvm up' and 'fuguvm start' refuse an other version
+# with exit code 3. Without it, fuguvm checks nothing. See fuguvm(1).
+# qemu_version 9.0
+
 # VM definitions
 #
 # You can define VMs in blocks here or in project .fuguvmrc files.
 # The project config overrides the global config.
+#
+# ssh_port and console_port take a number or the word 'auto', which
+# takes a free host port and records it. bind_address names the host
+# address of the forwarded ports; the default is 127.0.0.1.
 #
 # vm "default" {
 #     arch         arm64
@@ -39,4 +48,5 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 #     disk_size    8G
 #     ssh_port     2222
 #     console_port 4444
+#     bind_address 127.0.0.1
 # }

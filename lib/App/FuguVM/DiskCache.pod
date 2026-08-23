@@ -157,6 +157,28 @@ image. It returns C<undef> on a failure, and a try to overwrite a
 populated key is one such failure. The caller then degrades to a
 standalone disk.
 
+=item lock_entry($key, $timeout)
+
+The method returns an open handle with an exclusive C<flock(2)> on
+the lock file of C<$key>:
+C<< <cache_dir>/installed/.lock.<key> >>. The wait blocks, with a
+deadline of C<$timeout> seconds (default 3600). The method returns
+C<undef> on the deadline, and C<undef> when the file cannot open.
+
+The lock releases when the handle closes, or when the process exits.
+Thus a stale lock file blocks nothing.
+
+The lock serializes the first population of one entry. The caller
+takes the lock, looks the key up a second time, and installs only on
+a second miss. Every project that shares the cache directory shares
+the lock. The lock does not replace the write-once rule of C<store>:
+a run that lost the lock to its deadline still cannot publish a
+second entry.
+
+The file name starts with a dot. Thus it cannot collide with an
+entry: C<list> reads only a directory whose name has no leading dot,
+and C<sweep_temp> removes only a C<.tmp.> directory.
+
 =item list
 
 The method returns each complete entry, newest first, as
@@ -235,9 +257,11 @@ password, the same secret that the VM state directory keeps. The cache
 makes the life of this secret longer: the password stays after
 C<fuguvm destroy>, and it changes only when the base key changes.
 
-The guest permits root login with a password. QEMU forwards the SSH
-port and the serial console port of the guest on each host interface.
-Thus the password is not a localhost-only secret. See L<fuguvm(1)>.
+The guest permits root login with a password. QEMU binds the
+forwarded SSH port and the serial console port of the guest to the
+configured C<bind_address>. The default is C<127.0.0.1>. With
+C<bind_address 0.0.0.0>, the password is not a localhost-only secret.
+See L<fuguvm(1)>.
 
 =head1 SEE ALSO
 

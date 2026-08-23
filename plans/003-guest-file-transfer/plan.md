@@ -4,9 +4,7 @@
 
 Proposed. Implements: GST-TRANSFER.
 
-This plan depends on plan 002,
-[`plans/002-scriptable-and-parallel-guests/plan.md`](../002-scriptable-and-parallel-guests/plan.md).
-Plan 002 adds the `bind_address` directive, whose default is `127.0.0.1`, and
+The code holds the `bind_address` directive, whose default is `127.0.0.1`, and
 the method `App::FuguVM::Guest->connect_address`. Each verb of this plan
 connects to that address.
 
@@ -262,7 +260,8 @@ escape key.
 chardev:
 
 ```perl
-	push @cmd, '-serial', "tcp::$console_port,server,telnet,nowait";
+	return ( '-serial',
+		"tcp:$bind_address:$console_port,server,telnet,nowait" );
 ```
 
 An installation and `fuguvm expect` both attach to that one port. So an operator
@@ -273,14 +272,13 @@ reason for an address and not a name:
 
 ```perl
 	# The connection uses the SSH agent for authentication. Connect
-	# over IPv4: QEMU forwards the guest SSH port on 127.0.0.1 only.
-	# On dual-stack hosts, for example CI runners, 'localhost'
-	# resolves to ::1 first.
+	# to the IPv4 address that the forwarded port binds to. A name
+	# such as 'localhost' resolves to ::1 first on a dual-stack
+	# host, and QEMU does not listen there.
 ```
 
-`cmd_console` prints `localhost` today. Plan 002 adds
-`App::FuguVM::Guest->connect_address`, and each verb of this plan must take the
-address from that method.
+The code holds `App::FuguVM::Guest->connect_address`, and each verb of this plan
+must take the address from that method.
 
 **`--quiet` hides the whole console verb today.** The four lines go through the
 logger, and `_prepare` builds a quiet logger for `--quiet`. So today
@@ -488,9 +486,8 @@ death to 128 plus the signal number. So the verb needs no code of its own.
 
 The restore is idempotent, and step 4 runs it even when step 2 already ran it.
 
-`App::FuguVM::CLI` builds the object with `host => $vm->connect_address`.
-`cmd_expect` keeps `localhost`, because a change there is a behavior change
-outside this plan.
+`App::FuguVM::CLI` builds the object with `host => $vm->connect_address`, like
+`cmd_expect`.
 
 ### `App::FuguVM::CLI`
 
@@ -691,11 +688,7 @@ them.
 4. **A bare `fuguvm ssh uname -m` exits 2.** The option parser reads `-m` as an
    option. The working form is `fuguvm ssh -- uname -m`. The Integration
    workflow uses the quoted form `fuguvm ssh "uname -m"`, which works today.
-5. **`cmd_expect` still uses `localhost`.** The attach verb uses the connect
-   address of the guest, for the reason that `cmd_ssh` records. A dual-stack
-   host can therefore serve the two verbs differently. One line would align
-   them, and that line is a behavior change outside this plan.
-6. **`get` copies one file.** FuguTTX `TRN-TRACES` copies "each transcript" out,
+5. **`get` copies one file.** FuguTTX `TRN-TRACES` copies "each transcript" out,
    which is one call for each file. A run that must copy a whole result
    directory needs a remote listing, and `Fugu::SSH` gives none. A caller can
    build one archive in the guest and copy that file instead.

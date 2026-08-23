@@ -74,6 +74,7 @@ my %COMMANDS = (
 	},
 	status => {
 		summary => 'Show VM status',
+		usage   => '[key]',
 		method  => 'cmd_status',
 	},
 	start => {
@@ -294,24 +295,66 @@ sub _load_vm ( $self, %opts )
 	);
 }
 
-# Show the VM status
+# Show the VM status. The report is data, so it goes to standard
+# output whatever --quiet says. An optional key argument selects one
+# bare value, so a make target reads one port without a text filter.
 sub cmd_status ( $self, $cli, @args )
 {
-	my $vm = $self->_load_vm or return $self->{load_exit};
+	my ( $key, @extra ) = @args;
+	if (@extra) {
+		$self->{log}->error('Usage: fuguvm status [key]');
+		return EXIT_INVALID_ARGS;
+	}
 
-	$self->_dump_sorted( $vm->status );
+	my $vm     = $self->_load_vm or return $self->{load_exit};
+	my $status = $vm->status;
+
+	if ( defined $key ) {
+		if ( !exists $status->{$key} ) {
+			$self->{log}->error(
+				sprintf(
+					"Unknown status key '%s' (valid keys:"
+					    . ' %s)',
+					$key, join( ', ', sort keys %$status ) )
+			);
+			return EXIT_INVALID_ARGS;
+		}
+
+		say $status->{$key} // '';
+		return EXIT_SUCCESS;
+	}
+
+	$self->_dump_sorted($status);
 	return EXIT_SUCCESS;
 }
 
 # $self->_dump_sorted($hash):
-#	Log the hash as sorted "key: value" lines.
+#	Write the hash as sorted "key: value" lines to standard
+#	output, where a shell can read them. A line with an empty
+#	value ends with the colon and one space, so every line has one
+#	shape.
 sub _dump_sorted ( $self, $hash )
 {
 	for my $key ( sort keys %$hash ) {
 		my $value = $hash->{$key} // '';
-		$self->{log}->info("$key: $value");
+		say "$key: $value";
 	}
 
+	return;
+}
+
+# $self->_require_port($vm, $directive):
+#	Return the resolved port of the guest, or undef with a
+#	diagnostic. A stopped guest with a directive of 'auto' has no
+#	port, and a connection with an undef port would reach the
+#	default port of the protocol on the host itself.
+sub _require_port ( $self, $vm, $directive )
+{
+	my $port = $directive eq 'ssh_port' ? $vm->ssh_port : $vm->console_port;
+	return $port if defined $port;
+
+	$self->{log}->error( "VM '$self->{vm_name}' has no $directive now."
+		    . " Run 'fuguvm up' first." );
 	return;
 }
 
@@ -320,13 +363,16 @@ sub cmd_ssh ( $self, $cli, @args )
 {
 	my $vm = $self->_load_vm or return $self->{load_exit};
 
+	my $port = $self->_require_port( $vm, 'ssh_port' );
+	return EXIT_ERROR if !defined $port;
+
 	# The connection uses the SSH agent for authentication. Connect
-	# over IPv4: QEMU forwards the guest SSH port on 127.0.0.1 only.
-	# On dual-stack hosts, for example CI runners, 'localhost'
-	# resolves to ::1 first.
+	# to the IPv4 address that the forwarded port binds to. A name
+	# such as 'localhost' resolves to ::1 first on a dual-stack
+	# host, and QEMU does not listen there.
 	my $ssh = Fugu::SSH->new(
-		host => '127.0.0.1',
-		port => $vm->ssh_port,
+		host => $vm->connect_address,
+		port => $port,
 		user => 'root',
 	);
 
@@ -344,11 +390,15 @@ sub cmd_ssh ( $self, $cli, @args )
 # Show the console connection info
 sub cmd_console ( $self, $cli, @args )
 {
-	my $vm   = $self->_load_vm or return $self->{load_exit};
-	my $port = $vm->console_port;
-	$self->{log}->info("Connect with: telnet localhost $port");
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $port = $self->_require_port( $vm, 'console_port' );
+	return EXIT_ERROR if !defined $port;
+
+	my $host = $vm->connect_address;
+	$self->{log}->info("Connect with: telnet $host $port");
 	$self->{log}->info("type: telnet");
-	$self->{log}->info("host: localhost");
+	$self->{log}->info("host: $host");
 	$self->{log}->info("port: $port");
 	return EXIT_SUCCESS;
 }
@@ -362,10 +412,14 @@ sub cmd_expect ( $self, $cli, @args )
 		return EXIT_INVALID_ARGS;
 	}
 
-	my $vm     = $self->_load_vm or return $self->{load_exit};
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $port = $self->_require_port( $vm, 'console_port' );
+	return EXIT_ERROR if !defined $port;
+
 	my $expect = App::FuguVM::Console->new(
-		host => 'localhost',
-		port => $vm->console_port,
+		host => $vm->connect_address,
+		port => $port,
 	);
 
 	my $result = $expect->run_script( $script, @args );
@@ -384,6 +438,9 @@ sub cmd_wait ( $self, $cli, @args )
 	}
 
 	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $port = $self->_require_port( $vm, 'ssh_port' );
+	return EXIT_ERROR if !defined $port;
 
 	if ( !$vm->wait_ssh($timeout) ) {
 		$self->{log}->error("Timeout waiting for SSH");
