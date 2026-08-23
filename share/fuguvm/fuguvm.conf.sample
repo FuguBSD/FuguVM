@@ -49,4 +49,14 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 #     ssh_port     2222
 #     console_port 4444
 #     bind_address 127.0.0.1
+#
+#     # Optional: install from an autoinstall(8) response file, or
+#     # overlay an existing image instead of an installation. The two
+#     # directives contradict each other. See fuguvm(1).
+#     # autoinstall  install.conf
+#     # base_disk    ~/images/openbsd-78-amd64.qcow2
+#
+#     # Optional: the file whose first line is the root password of
+#     # the image, for the SSH key setup outside the default install.
+#     # root_password_file ~/images/openbsd-78.pass
 # }

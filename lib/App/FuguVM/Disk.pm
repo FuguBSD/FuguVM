@@ -77,6 +77,40 @@ sub path ( $self, $name )
 	return "$self->{state_dir}/$name/disk.qcow2";
 }
 
+# $class_or_self->convert($source, $target, %opts):
+#	Convert $source into a fresh image at $target. This method is
+#	the one home of 'qemu-img convert'. The 'format' option is
+#	'qcow2' or 'raw', and the default is 'qcow2'. A raw target is
+#	sparse. The 'backing' option names a parent image, and the
+#	target then stores only the difference. The method also works
+#	on the class, because it reads no state directory. Return the
+#	target path, or undef after a diagnostic.
+sub convert ( $, $source, $target, %opts )
+{
+	my $format = $opts{format} // 'qcow2';
+
+	if ( !-f $source ) {
+		Fugu::Log->default->error( 'Cannot convert missing image: %s',
+			$source );
+		return;
+	}
+
+	my @cmd = ( 'qemu-img', 'convert', '-O', $format );
+	push @cmd, '-B', $opts{backing}, '-F', 'qcow2'
+	    if defined $opts{backing};
+	push @cmd, $source, $target;
+
+	my $result = Fugu::Process->run( cmd => \@cmd );
+	unless ( $result->{success} ) {
+		Fugu::Log->default->error( 'Failed to convert %s to %s: %s',
+			$source, $target,
+			$result->{stderr} || $result->{error} || 'unknown' );
+		return;
+	}
+
+	return $target;
+}
+
 # $self->info($name):
 #	Get the qemu-img report on the disk as a hashref. The method
 #	returns undef when there is no disk or when it cannot read the

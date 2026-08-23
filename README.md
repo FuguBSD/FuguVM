@@ -3,10 +3,12 @@
 Install and manage OpenBSD virtual machines under QEMU.
 
 `fuguvm` installs an OpenBSD guest without interaction, caches the installed
-disk, and drives the lifecycle: boot, wait, ssh, snapshot, and shutdown. A
-project describes its guests in one `.fuguvmrc` at its root. The tool exists so
-a test suite can run against a real OpenBSD guest, on a Linux or Darwin host and
-in CI.
+disk, and drives the lifecycle: boot, wait, ssh, snapshot, and shutdown. It also
+carries an image through its whole life: an `autoinstall` directive builds it,
+`fuguvm image export` publishes it as a file, and a `base_disk` directive
+consumes that file on an other host. A project describes its guests in one
+`.fuguvmrc` at its root. The tool exists so a test suite can run against a real
+OpenBSD guest, on a Linux or Darwin host and in CI.
 
 FuguVM is written in Perl (v5.36) over the
 [Fugu](https://github.com/FuguBSD/Fugu) library. It adds no direct CPAN

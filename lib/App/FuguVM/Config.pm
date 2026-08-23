@@ -227,7 +227,89 @@ sub load_vm ( $self, $name )
 	    ? $self->_bool( $vm->{image_cache}, 1 )
 	    : $self->image_cache;
 
+	return if !$self->_validate_origin( $name, $vm );
+
 	return $vm;
+}
+
+# $self->_validate_origin($name, $vm):
+#	Validate the three image-lifecycle directives, and derive
+#	install_mode: expect, autoinstall or import. This loader is the
+#	boundary of each directive, so no module downstream repeats a
+#	check. Return 1 when the configuration loads, and 0 with the
+#	reason in error() otherwise.
+sub _validate_origin ( $self, $name, $vm )
+{
+	if ( defined $vm->{autoinstall} && defined $vm->{base_disk} ) {
+		$self->{error} = sprintf(
+			"VM '%s': autoinstall and base_disk contradict each"
+			    . " other; one guest has one origin",
+			$name
+		);
+		return 0;
+	}
+
+	# Each path directive resolves against the project root, and the
+	# file must be readable now. A path that fails at 'up' time, deep
+	# inside an install, is a path that failed too late.
+	for my $directive (qw(autoinstall base_disk root_password_file)) {
+		next if !defined $vm->{$directive};
+		my $path = $self->_resolve_path( $vm->{$directive} );
+		if ( !-f $path || !-r $path ) {
+			$self->{error} =
+			    sprintf( "VM '%s': %s file is not readable: %s",
+				$name, $directive, $path );
+			return 0;
+		}
+		$vm->{$directive} = $path;
+	}
+
+	$vm->{install_mode} =
+	      defined $vm->{autoinstall} ? 'autoinstall'
+	    : defined $vm->{base_disk}   ? 'import'
+	    :                              'expect';
+
+	if ( $vm->{install_mode} eq 'import' && !$vm->{image_cache} ) {
+		$self->{error} = sprintf(
+			"VM '%s': base_disk needs the image cache;"
+			    . " remove 'image_cache no'",
+			$name
+		);
+		return 0;
+	}
+
+	# Outside the expect mode the tool does not know the root
+	# password of the image, and it cannot install a key without
+	# one.
+	if (       $vm->{install_mode} ne 'expect'
+		&& defined $vm->{ssh_pubkey}
+		&& $vm->{ssh_pubkey} ne ''
+		&& !defined $vm->{root_password_file} )
+	{
+		$self->{error} = sprintf(
+			"VM '%s': ssh_pubkey needs root_password_file in the"
+			    . " %s mode; add the directive, or unset"
+			    . " ssh_pubkey and bake the key into the image",
+			$name, $vm->{install_mode} );
+		return 0;
+	}
+
+	return 1;
+}
+
+# $self->_resolve_path($value):
+#	Expand a leading tilde, then make a relative path absolute
+#	against the project root. The result is always absolute: the
+#	project root itself can be relative, from a --project option,
+#	and a daemonized child can read the path from an other working
+#	directory.
+sub _resolve_path ( $self, $value )
+{
+	my $path = Fugu::File->expand_tilde($value);
+	$path = "$self->{project_root}/$path" if $path !~ m{^/};
+
+	require File::Spec;
+	return File::Spec->rel2abs($path);
 }
 
 # $self->error:

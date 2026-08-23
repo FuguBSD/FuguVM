@@ -19,6 +19,8 @@ use v5.36;
 
 package App::FuguVM::CLI;
 
+use File::Basename;
+use File::Spec ();
 use Fugu::CLI;
 use Fugu::File;
 use Fugu::Log;
@@ -118,6 +120,12 @@ my %COMMANDS = (
 		usage   => '<save|restore|rm|list> [name] [--names]',
 		options => { 'names' => 'print names only' },
 		method  => 'cmd_snapshot',
+	},
+	image => {
+		summary => 'Export the installed base image',
+		usage   => 'export <path> [--format=qcow2|raw]',
+		options => { 'format=s' => 'the output format: qcow2 or raw' },
+		method  => 'cmd_image',
 	},
 	disk => {
 		summary => 'Manage disk (check, repair, info)',
@@ -919,6 +927,109 @@ sub _disk_cache_key ( $self, $cache )
 	my $backing = $disk->backing_file( $vm_config->{name} );
 
 	return $cache->key_for_path($backing);
+}
+
+# The image export, beside the snapshot verbs. Those verbs already
+# resolve a cache key from a working disk, and the export needs the
+# same resolution.
+sub cmd_image ( $self, $cli, @args )
+{
+	my $action = shift @args;
+	if ( !defined $action || $action ne 'export' ) {
+		$self->{log}->error( 'Usage: fuguvm image export <path>'
+			    . ' [--format=qcow2|raw]' );
+		return EXIT_INVALID_ARGS;
+	}
+
+	return $self->_image_export( $cli, @args );
+}
+
+# $self->_image_export($cli, @args):
+#	Write the base image of the invoked VM as a full-disk image.
+#	The source is the base image of the cache entry that backs the
+#	working disk, or the working disk itself when the disk is
+#	standalone. The write goes through one temporary sibling and
+#	one rename, so a failure leaves no partial file behind.
+sub _image_export ( $self, $cli, @args )
+{
+	my ( $target, @extra ) = @args;
+	if ( !defined $target || @extra ) {
+		$self->{log}->error( 'Usage: fuguvm image export <path>'
+			    . ' [--format=qcow2|raw]' );
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $format = $cli->option('format') // 'qcow2';
+	if ( $format ne 'qcow2' && $format ne 'raw' ) {
+		$self->{log}->error(
+			"Unknown format '$format' (accepted values: qcow2, raw)"
+		);
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	# A live overlay is not consistent, and a running QEMU holds
+	# an exclusive lock on the working disk. snapshot save refuses
+	# a running guest for the same reason.
+	if ( $vm->is_running ) {
+		$self->{log}->error("Stop the VM before exporting its image");
+		return EXIT_VM_RUNNING;
+	}
+
+	if ( !$self->{state}->disk_exists ) {
+		$self->{log}->error("No disk image. Run 'fuguvm up' first.");
+		return EXIT_ERROR;
+	}
+
+	if ( !$self->{state}->is_installed ) {
+		$self->{log}->error("VM is not installed yet");
+		return EXIT_ERROR;
+	}
+
+	# The tool must not overwrite an image that an operator
+	# published.
+	if ( -e $target ) {
+		$self->{log}->error("The target exists: $target");
+		return EXIT_ERROR;
+	}
+
+	# The tool creates no directory for the operator
+	my $parent = dirname($target);
+	if ( !-d $parent ) {
+		$self->{log}->error("The parent directory is absent: $parent");
+		return EXIT_ERROR;
+	}
+
+	# The source. A standalone disk comes from --no-cache or from
+	# 'image_cache no', and the export then reads the disk itself.
+	my $cache = App::FuguVM::DiskCache->new( $self->{config}->cache_dir );
+	my $key   = $self->_disk_cache_key($cache);
+	my $source =
+	    defined $key ? $cache->base_path($key) : $self->{state}->disk_path;
+
+	my $tmp = "$target.tmp.$$";
+	if ( !App::FuguVM::Disk->convert( $source, $tmp, format => $format ) ) {
+		unlink $tmp;
+		$self->{log}->error("Export failed");
+		return EXIT_ERROR;
+	}
+	if ( !rename $tmp, $target ) {
+		$self->{log}->error("Cannot publish $target: $!");
+		unlink $tmp;
+		return EXIT_ERROR;
+	}
+
+	my $path = File::Spec->rel2abs($target);
+	$self->_dump_sorted( {
+		bytes  => -s $path,
+		format => $format,
+		key    => $key // '',
+		path   => $path,
+		source => File::Spec->rel2abs($source),
+	} );
+
+	return EXIT_SUCCESS;
 }
 
 # Disk management

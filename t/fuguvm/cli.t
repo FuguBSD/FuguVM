@@ -587,6 +587,103 @@ SKIP: {
 	2, 'an unknown list option returns EXIT_INVALID_ARGS');
 }
 
+# ============================================================
+# Image export
+# ============================================================
+
+# Usage errors match the style of the other subcommands
+{
+    my $project = _cache_project();
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet', 'image'), 2,
+	'image without an action returns EXIT_INVALID_ARGS');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'frobnicate'), 2,
+	'an unknown image action returns EXIT_INVALID_ARGS');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'export'), 2,
+	'image export without a path returns EXIT_INVALID_ARGS');
+
+    my ($code, $out, $err) = _run_captured("--project=$project",
+	'image', 'export', "$project/out.qcow2", '--format=vmdk');
+    is($code, 2, 'an unknown --format value returns EXIT_INVALID_ARGS');
+    like($err, qr/qcow2.*raw/, 'and the diagnostic names both formats');
+}
+
+# The refusals and the export itself, over a real backing chain
+SKIP: {
+    my $has_qemu = `which qemu-img 2>/dev/null`;
+    skip 'qemu-img not installed', 15 unless $has_qemu;
+
+    my $project = _cache_project();
+    my $state_dir = "$project/.fuguvm/state";
+    my $target = "$project/out.qcow2";
+
+    local $SIG{__WARN__} = sub {};
+
+    # A guest with no disk
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'export', $target),
+	1, 'a guest with no disk exits 1');
+
+    # A working disk on a cached base
+    my $cache = App::FuguVM::DiskCache->new("$project/cache");
+    my $key = $cache->key(
+	App::FuguVM::Config->new($project)->load_vm('default'));
+    my $source = "$project/source.qcow2";
+    system('qemu-img', 'create', '-f', 'qcow2', $source, '16M') == 0
+	or skip 'cannot create a test disk image', 14;
+    my $base = $cache->store($key, $source, { root_password => 'pw' });
+    App::FuguVM::Disk->new($state_dir)->create('default', undef, $base);
+    App::FuguVM::State->new($state_dir, 'default')->mark_installed('arm64');
+
+    # A running guest refuses with 5. The test writes its own
+    # process ID, so Fugu::Process->is_alive reports a live guest.
+    make_path("$state_dir/default");
+    open my $pidfh, '>', "$state_dir/default/vm.pid" or die $!;
+    print $pidfh "$$\n";
+    close $pidfh;
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'export', $target),
+	5, 'an export of a running guest exits 5');
+    unlink "$state_dir/default/vm.pid";
+
+    # The tool creates no directory for the operator
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'export', "$project/absent/out.qcow2"),
+	1, 'an absent parent directory exits 1');
+
+    # The export writes the base image and reports it
+    my ($code, $out) = _run_captured("--project=$project", '--quiet',
+	'image', 'export', $target);
+    is($code, 0, 'the export succeeds');
+    ok(-f $target, 'and the file exists');
+    like($out, qr/^bytes: [0-9]+$/m, 'the report holds the byte count');
+    like($out, qr/^format: qcow2$/m, 'and the default format');
+    like($out, qr/^key: \Q$key\E$/m, 'and the cache key of the source');
+    like($out, qr/^path: .*out\.qcow2$/m, 'and the written path');
+    like($out, qr/^source: \Q$base\E$/m, 'and the source image');
+    like(`qemu-img info "$target"`, qr/file format: qcow2/,
+	'the written file is a qcow2');
+    unlike(`qemu-img info "$target"`, qr/backing file/,
+	'with no backing file');
+
+    # An existing target stays unchanged
+    my $before = -s $target;
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'image', 'export', $target),
+	1, 'a second export onto the same path exits 1');
+    is(-s $target, $before, 'and the file stays unchanged');
+
+    # The raw form
+    ($code) = _run_captured("--project=$project", '--quiet',
+	'image', 'export', "$project/out.raw", '--format=raw');
+    is($code, 0, 'a raw export succeeds');
+    like(`qemu-img info "$project/out.raw"`, qr/file format: raw/,
+	'and writes the raw format');
+}
+
 # A byte count for a person to read is presentation, so the CLI owns
 # it. The cases came with the function from Fugu::Timeout.
 subtest '_format_size' => sub {
@@ -630,29 +727,28 @@ sub _cache_project
 
 # Run a command with both streams captured, and return the exit
 # code, the stdout text and the stderr text. Thus scriptable output
-# cannot mix with the TAP stream of this test.
+# cannot mix with the TAP stream of this test. The capture goes
+# through real files, never through an in-memory scalar: a scalar
+# handle has no file descriptor, and the output of a child process
+# would then land wherever descriptor 1 points at that moment.
 sub _run_captured
 {
     my (@args) = @_;
-    my ($out, $err) = ('', '');
+    my $dir = tempdir(CLEANUP => 1);
 
     open my $saved_out, '>&', \*STDOUT or die $!;
-    close STDOUT;
-    open STDOUT, '>', \$out or die $!;
+    open STDOUT, '>', "$dir/out" or die $!;
     open my $saved_err, '>&', \*STDERR or die $!;
-    close STDERR;
-    open STDERR, '>', \$err or die $!;
+    open STDERR, '>', "$dir/err" or die $!;
 
     my $code = App::FuguVM::CLI->run(@args);
 
-    close STDOUT;
     open STDOUT, '>&', $saved_out or die $!;
     close $saved_out;
-    close STDERR;
     open STDERR, '>&', $saved_err or die $!;
     close $saved_err;
 
-    return ($code, $out, $err);
+    return ($code, _slurp("$dir/out"), _slurp("$dir/err"));
 }
 
 # Run a command and capture stdout. This separates the scriptable
@@ -660,17 +756,8 @@ sub _run_captured
 sub _capture_stdout
 {
     my ($project, @args) = @_;
-    my $out = '';
-
-    open my $saved, '>&', \*STDOUT or die $!;
-    close STDOUT;
-    open STDOUT, '>', \$out or die $!;
-
-    App::FuguVM::CLI->run("--project=$project", '--quiet', @args);
-
-    close STDOUT;
-    open STDOUT, '>&', $saved or die $!;
-    close $saved;
+    my (undef, $out) =
+	_run_captured("--project=$project", '--quiet', @args);
 
     return $out;
 }
@@ -680,19 +767,22 @@ sub _capture_stdout
 sub _capture_stderr
 {
     my ($project, @args) = @_;
-    my $err = '';
-
-    open my $saved, '>&', \*STDERR or die $!;
-    close STDERR;
-    open STDERR, '>', \$err or die $!;
-
-    App::FuguVM::CLI->run("--project=$project", @args);
-
-    close STDERR;
-    open STDERR, '>&', $saved or die $!;
-    close $saved;
+    my (undef, undef, $err) = _run_captured("--project=$project", @args);
 
     return $err;
+}
+
+# _slurp($path):
+#	The whole file as text.
+sub _slurp
+{
+    my ($path) = @_;
+
+    open my $fh, '<', $path or die "Cannot read $path: $!";
+    my $text = do { local $/; <$fh> };
+    close $fh;
+
+    return $text;
 }
 
 # A cached proxy download, seeded on disk and not through store().

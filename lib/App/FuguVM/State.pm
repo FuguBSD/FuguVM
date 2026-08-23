@@ -55,6 +55,9 @@ sub new ( $class, $state_dir, $vm_name, %opts )
 		vm_pid => Fugu::Pidfile->new( path => "$vm_state_dir/vm.pid" ),
 		proxy_pid =>
 		    Fugu::Pidfile->new( path => "$vm_state_dir/proxy.pid" ),
+		autoinstall_pid => Fugu::Pidfile->new(
+			path => "$vm_state_dir/autoinstall.pid"
+		),
 		store => Fugu::StateFile->new(
 			path => "$vm_state_dir/status",
 			mode => 0600,
@@ -109,6 +112,16 @@ sub vm_pidfile ($self)
 sub proxy_pidfile ($self)
 {
 	return $self->{proxy_pid};
+}
+
+# $self->autoinstall_pidfile:
+#	Return the PID file of the autoinstall responder child.
+#	App::FuguVM::Guest gives it to the responder supervisor. The
+#	file lives in the state directory of the guest, so an
+#	interrupted run leaves no listener that nothing owns.
+sub autoinstall_pidfile ($self)
+{
+	return $self->{autoinstall_pid};
 }
 
 # VM PID management. QEMU writes the pid file itself, so the module

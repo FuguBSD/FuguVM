@@ -710,6 +710,113 @@ is(App::FuguVM::Config::DEFAULT_VERSION(), '7.8', 'DEFAULT_VERSION is 7.8');
 	'load_vm folds the set into the per-VM configuration');
 }
 
+# The three image-lifecycle directives: the resolution, the derived
+# install_mode, and each refusal at the configuration boundary
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    # The files that the directives point at
+    for my $seed (["$tmpdir/install.conf", "System hostname = image\n"],
+	["$tmpdir/base.qcow2", 'not a real image'],
+	["$homedir/password", "secret\n"]) {
+	open my $fh, '>', $seed->[0] or die $!;
+	print $fh $seed->[1];
+	close $fh;
+    }
+
+    my $write = sub ($body) {
+	open my $fh, '>', "$tmpdir/.fuguvmrc" or die $!;
+	print $fh $body;
+	close $fh;
+	return App::FuguVM::Config->new($tmpdir);
+    };
+
+    # install_mode derives from the directives; there is no
+    # install_mode directive
+    my $config = $write->("vm \"plain\" {\n}\n");
+    is($config->load_vm('plain')->{install_mode}, 'expect',
+	'no directive derives the expect mode');
+
+    $config = $write->("vm \"auto\" {\n    autoinstall install.conf\n}\n");
+    my $vm = $config->load_vm('auto');
+    is($vm->{install_mode}, 'autoinstall',
+	'autoinstall derives the autoinstall mode');
+    is($vm->{autoinstall}, "$tmpdir/install.conf",
+	'a relative path resolves against the project root');
+
+    $config = $write->("vm \"import\" {\n    base_disk base.qcow2\n}\n");
+    $vm = $config->load_vm('import');
+    is($vm->{install_mode}, 'import', 'base_disk derives the import mode');
+    is($vm->{base_disk}, "$tmpdir/base.qcow2",
+	'and its path resolves the same way');
+
+    $config = $write->(
+	"vm \"tilde\" {\n    root_password_file ~/password\n}\n");
+    is($config->load_vm('tilde')->{root_password_file},
+	"$homedir/password", 'a leading tilde expands');
+
+    # An absent file is a refusal that names the resolved path
+    $config = $write->("vm \"gone\" {\n    autoinstall absent.conf\n}\n");
+    is($config->load_vm('gone'), undef,
+	'an absent autoinstall file makes load_vm return undef');
+    like($config->error, qr{\Q$tmpdir/absent.conf\E},
+	'and error names the resolved path');
+
+    $config = $write->("vm \"gone\" {\n    base_disk absent.qcow2\n}\n");
+    is($config->load_vm('gone'), undef,
+	'an absent base_disk file behaves the same way');
+    like($config->error, qr{\Q$tmpdir/absent.qcow2\E},
+	'and error names the resolved path');
+
+    # Two origins contradict each other
+    $config = $write->("vm \"both\" {\n"
+	. "    autoinstall install.conf\n"
+	. "    base_disk base.qcow2\n"
+	. "}\n");
+    is($config->load_vm('both'), undef,
+	'autoinstall with base_disk makes load_vm return undef');
+    like($config->error, qr/autoinstall/, 'error names one directive');
+    like($config->error, qr/base_disk/, 'and the other');
+
+    # An imported base lives in the cache, so the cache must be on
+    $config = $write->("vm \"import\" {\n"
+	. "    base_disk base.qcow2\n"
+	. "    image_cache no\n"
+	. "}\n");
+    is($config->load_vm('import'), undef,
+	'base_disk with image_cache no makes load_vm return undef');
+    like($config->error, qr/image cache/, 'and error names the cause');
+
+    # ssh_pubkey without root_password_file refuses outside the
+    # expect mode, because the tool cannot authenticate
+    for my $origin ('autoinstall install.conf', 'base_disk base.qcow2') {
+	$config = $write->("ssh_pubkey ssh-ed25519 KEY test\@host\n"
+	    . "vm \"keyed\" {\n    $origin\n}\n");
+	is($config->load_vm('keyed'), undef,
+	    "ssh_pubkey with no root_password_file refuses ($origin)");
+	like($config->error, qr/root_password_file/,
+	    'and error names one remedy');
+	like($config->error, qr/ssh_pubkey/, 'and the other');
+    }
+
+    $config = $write->("ssh_pubkey ssh-ed25519 KEY test\@host\n"
+	. "vm \"keyed\" {\n"
+	. "    autoinstall install.conf\n"
+	. "    root_password_file ~/password\n"
+	. "}\n");
+    ok(defined $config->load_vm('keyed'),
+	'root_password_file satisfies the refusal');
+
+    $config = $write->("ssh_pubkey ssh-ed25519 KEY test\@host\n"
+	. "vm \"keyed\" {\n}\n");
+    ok(defined $config->load_vm('keyed'),
+	'the expect mode needs no password file');
+    is($config->error, undef, 'and error returns undef after it');
+}
+
 # Test VM block with unquoted name
 {
     my $tmpdir = tempdir(CLEANUP => 1);

@@ -112,6 +112,26 @@ use_ok('App::FuguVM::State');
     ok(!-f "$tmpdir/test/proxy.pid", 'proxy.pid removed');
 }
 
+# The autoinstall responder rides on its own pid file too
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $state = App::FuguVM::State->new($tmpdir, 'test');
+
+    isa_ok($state->autoinstall_pidfile, 'Fugu::Pidfile',
+	'autoinstall_pidfile');
+    like($state->autoinstall_pidfile->path, qr{\Q$tmpdir\E/test/},
+	'the pid file lives under the state directory of the guest');
+    isnt($state->autoinstall_pidfile->path, $state->proxy_pidfile->path,
+	'and its path differs from the proxy pid file');
+
+    $state->autoinstall_pidfile->write_pid(33333);
+    is($state->autoinstall_pidfile->read_pid, 33333,
+	'the responder pid file stores its own PID');
+    ok(-f "$tmpdir/test/autoinstall.pid", 'autoinstall.pid is its own file');
+    $state->autoinstall_pidfile->remove;
+    ok(!-f "$tmpdir/test/autoinstall.pid", 'autoinstall.pid removed');
+}
+
 # Test installation state
 {
     my $tmpdir = tempdir(CLEANUP => 1);

@@ -330,6 +330,70 @@ SKIP: {
 	    'restore misses once the base is gone');
 }
 
+# The install media arguments: -no-reboot for an autoinstall run
+# with media, and for nothing else
+{
+	my $auto = App::FuguVM::Guest->new(
+	    config => { arch => 'amd64', install_mode => 'autoinstall' });
+	is_deeply([$auto->_media_args('/x/miniroot.img')],
+	    ['-drive', 'file=/x/miniroot.img,format=raw,if=virtio,readonly=on',
+		'-no-reboot'],
+	    'an autoinstall run with install media adds -no-reboot');
+	is_deeply([$auto->_media_args], [],
+	    'the restart with no media adds nothing');
+
+	my $expect = App::FuguVM::Guest->new(
+	    config => { arch => 'amd64', install_mode => 'expect' });
+	is_deeply([$expect->_media_args('/x/miniroot.img')],
+	    ['-drive', 'file=/x/miniroot.img,format=raw,if=virtio,readonly=on'],
+	    'the expect mode boots its media without -no-reboot');
+}
+
+# The root password of each mode
+{
+	my $root = tempdir(CLEANUP => 1);
+	open my $fh, '>', "$root/password" or die $!;
+	print $fh "s3cret\nsecond line\n";
+	close $fh;
+	chmod 0600, "$root/password" or die $!;
+
+	my $imported = App::FuguVM::Guest->new(
+		config => { install_mode => 'import',
+		    root_password_file => "$root/password" },
+		log => TestLog->new,
+	);
+	is($imported->_root_password, 's3cret',
+	    '_root_password returns the first line, with no newline');
+
+	my $bare = App::FuguVM::Guest->new(
+		config => { install_mode => 'autoinstall' },
+		log    => TestLog->new,
+	);
+	is($bare->_root_password, undef,
+	    'no root_password_file means no password outside expect');
+
+	my $expect = App::FuguVM::Guest->new(
+		config => { install_mode => 'expect' },
+		log    => TestLog->new,
+	);
+	my $generated = $expect->_root_password;
+	is(length($generated), 32,
+	    '_root_password generates a password in the expect mode');
+	isnt($expect->_root_password, $generated, 'a fresh one each call');
+
+	# A password file that the group or others can read gives a
+	# warning
+	chmod 0644, "$root/password" or die $!;
+	my $log = TestLog->new;
+	my $loud = App::FuguVM::Guest->new(
+		config => { install_mode => 'import',
+		    root_password_file => "$root/password" },
+		log => $log,
+	);
+	is($loud->_root_password, 's3cret', 'the password still reads');
+	ok($log->{warned}, 'and the tool warns about the file mode');
+}
+
 # The bind address and the connect address
 {
 	my $vm = App::FuguVM::Guest->new(

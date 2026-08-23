@@ -19,10 +19,11 @@ App::FuguVM::State - what FuguVM remembers about one VM between runs
 
 Each VM has a directory under the state directory:
 
-    <state_dir>/<vm>/status        the JSON state, mode 0600
-    <state_dir>/<vm>/vm.pid        the QEMU process
-    <state_dir>/<vm>/proxy.pid     the proxy child
-    <state_dir>/<vm>/disk.qcow2    the working disk
+    <state_dir>/<vm>/status           the JSON state, mode 0600
+    <state_dir>/<vm>/vm.pid           the QEMU process
+    <state_dir>/<vm>/proxy.pid        the proxy child
+    <state_dir>/<vm>/autoinstall.pid  the responder child
+    <state_dir>/<vm>/disk.qcow2       the working disk
 
 The JSON blob rides on L<Fugu::StateFile>. The two process IDs ride on
 L<Fugu::Pidfile>, which takes its lock before it truncates and
@@ -62,10 +63,13 @@ C<state_dir> returns the directory that holds every VM's state, and
 C<vm_state_dir> the one that holds this VM's. C<data> returns the
 state hash reference for a caller that changes several keys at once.
 
-=head2 vm_pidfile, proxy_pidfile
+=head2 vm_pidfile, proxy_pidfile, autoinstall_pidfile
 
 Return the L<Fugu::Pidfile> objects. QEMU writes the first itself,
-through its C<-pidfile> option; the proxy supervisor owns the second.
+through its C<-pidfile> option; the proxy supervisor owns the second,
+and the autoinstall responder supervisor owns the third. Each file
+lives in the state directory of the guest, so an interrupted run
+leaves no child that nothing owns.
 
 =head2 get_vm_pid, clear_vm_pid, is_vm_running
 

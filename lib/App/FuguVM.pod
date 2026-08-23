@@ -26,6 +26,10 @@ code of its own. The work is split by concern:
 
 The architecture table of the supported guests.
 
+=item L<App::FuguVM::Autoinstall>
+
+The autoinstall(8) response file and its responder.
+
 =item L<App::FuguVM::CLI>
 
 The subcommands of C<fuguvm>.

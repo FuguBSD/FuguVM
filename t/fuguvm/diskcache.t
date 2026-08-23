@@ -77,6 +77,57 @@ my %CONFIG = (
 	isnt( $cache->key( \%older ), $key, 'version rotates the key' );
 }
 
+# The record of each install mode. A configuration without an
+# install_mode reads as the expect mode, so a hand-built test
+# configuration behaves like a loaded one.
+{
+	my $tmp   = tempdir( CLEANUP => 1 );
+	my $cache = App::FuguVM::DiskCache->new($tmp);
+
+	_spit( "$tmp/install.conf", "System hostname = image\n" );
+
+	my $expect_key = $cache->key( \%CONFIG );
+	is( $cache->key( { %CONFIG, install_mode => 'expect' } ),
+		$expect_key, 'an absent install_mode reads as expect' );
+
+	my %auto = (
+		%CONFIG,
+		install_mode => 'autoinstall',
+		autoinstall  => "$tmp/install.conf",
+	);
+	my $auto_key = $cache->key( \%auto );
+	ok( defined $auto_key, 'an autoinstall configuration derives a key' );
+	isnt( $auto_key, $expect_key,
+		'and its key differs from the equal expect key' );
+
+	_spit( "$tmp/install.conf", "System hostname = other\n" );
+	isnt( $cache->key( \%auto ), $auto_key,
+		'one changed byte of the response file rotates the key' );
+
+	unlink "$tmp/install.conf";
+	my $missing = do {
+		local $SIG{__WARN__} = sub { };
+		$cache->key( \%auto );
+	};
+	is( $missing, undef, 'an unreadable response file yields no key' );
+
+	my %import     = ( %CONFIG, install_mode => 'import' );
+	my $import_key = $cache->key( \%import );
+	ok( defined $import_key, 'an import configuration derives a key' );
+	isnt( $import_key, $expect_key,
+		'and its key differs from the expect key' );
+
+	my %bigger = ( %import, disk_size => '16G' );
+	is( $cache->key( \%bigger ),
+		$import_key,
+		'disk_size does not shape an imported entry, so the key holds'
+	);
+
+	my %older = ( %import, version => '7.7' );
+	isnt( $cache->key( \%older ), $import_key,
+		'the version rotates the import key' );
+}
+
 # The architecture comes from the VM configuration, and it separates
 # the entries of the two architectures.
 {
@@ -127,9 +178,20 @@ my %CONFIG = (
 	is( $cache->key( \%CONFIG ), $key,
 		'restoring the installer restores the key' );
 
+	# No script installed an imported entry, so no script change
+	# can rotate its key
+	my %import     = ( %CONFIG, install_mode => 'import' );
+	my $import_key = $cache->key( \%import );
+	_spit( "$tmp/install.exp", "#!/usr/bin/expect\n# one more step\n" );
+	is( $cache->key( \%import ), $import_key,
+		'an imported entry survives a change to a shipped script' );
+	_spit( "$tmp/install.exp", "#!/usr/bin/expect\n" );
+
 	_spit( "$tmp/cache-generation", "2\n" );
 	isnt( $cache->key( \%CONFIG ), $key,
 		'a bumped generation counter rotates the key' );
+	isnt( $cache->key( \%import ), $import_key,
+		'and it rotates the import key too' );
 
 	# An unreadable input means no key at all, and therefore no
 	# caching. The code never derives a key from partial inputs.
@@ -141,13 +203,15 @@ my %CONFIG = (
 	is( $missing, undef, 'a missing generation file yields no key' );
 }
 
-# The real checkout resolves both key inputs
+# The real checkout resolves every file-backed key input
 {
 	my $tmp   = tempdir( CLEANUP => 1 );
 	my $cache = App::FuguVM::DiskCache->new($tmp);
 
-	ok( defined $cache->_install_script,
+	ok( defined $cache->_driver_script('install.exp'),
 		'install.exp resolves in this checkout' );
+	ok( defined $cache->_driver_script('autoinstall.exp'),
+		'autoinstall.exp resolves in this checkout' );
 	ok( defined $cache->_generation_file,
 		'cache-generation resolves in this checkout' );
 }
@@ -453,6 +517,38 @@ SKIP: {
 		undef, 'the snapshot is gone' );
 }
 
+# An imported entry: the metadata holds no root password, and the
+# snapshot verbs still work over it
+SKIP: {
+	skip 'qemu-img not installed', 6 if !$HAS_QEMU_IMG;
+
+	my $tmp   = tempdir( CLEANUP => 1 );
+	my $cache = App::FuguVM::DiskCache->new("$tmp/cache");
+	my $key   = '7.8-amd64-0a0a0a0a';
+
+	my $outside = "$tmp/openbsd.qcow2";
+	system( 'qemu-img', 'create', '-f', 'qcow2', $outside, '64M' ) == 0
+	    or skip 'cannot create a test disk image', 6;
+
+	my $base = $cache->store( $key, $outside,
+		{ imported_from => $outside, install_mode => 'import' } );
+	ok( defined $base, 'store publishes an outside image as an entry' );
+
+	my $hit = $cache->lookup($key);
+	ok( defined $hit, 'and lookup finds it' );
+	is( $hit->{meta}{imported_from},
+		$outside, 'the metadata records the source' );
+	ok( !defined $hit->{meta}{root_password},
+		'and it holds no root password' );
+
+	is( $cache->key_for_path($base),
+		$key, 'key_for_path resolves the imported base' );
+
+	my $path = $cache->snapshot_store( $key, 'base', $outside, {} );
+	ok( defined $path && defined $cache->snapshot_lookup( $key, 'base' ),
+		'the snapshot verbs work over an imported entry' );
+}
+
 # A snapshot whose base is gone reads as a miss. Thus callers can
 # fall back to provisioning instead of a hard failure.
 SKIP: {
@@ -541,9 +637,9 @@ sub new ( $class, $cache_dir, $input_dir )
 	return $self;
 }
 
-sub _install_script ($self)
+sub _driver_script ( $self, $name )
 {
-	my $path = "$self->{input_dir}/install.exp";
+	my $path = "$self->{input_dir}/$name";
 	return -f $path ? $path : undef;
 }
 
