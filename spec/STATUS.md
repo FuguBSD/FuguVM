@@ -35,7 +35,7 @@ phase applies.
 | [GST-FLEET](guests.md#gst-fleet)               | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [CLI.pm](../lib/App/FuguVM/CLI.pm), [guest.t](../t/fuguvm/guest.t), [cli.t](../t/fuguvm/cli.t) |
 | [GST-TRANSFER](guests.md#gst-transfer)         | open    | —       | —                                                                                                                                      |
 | [GST-IMAGES](guests.md#gst-images)             | open    | —       | —                                                                                                                                      |
-| [REL-VERSION](release.md#rel-version)          | done    | —       | [Makefile](../Makefile)                                                                                                                |
+| [REL-VERSION](release.md#rel-version)          | done    | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist)                                                                                      |
 | [REL-ASSETS](release.md#rel-assets)            | done    | —       | [release.yml](../.github/workflows/release.yml)                                                                                        |
 | [REL-BUILD](release.md#rel-build)              | done    | —       | [build.yml](../.github/workflows/build.yml)                                                                                            |
 
@@ -50,11 +50,11 @@ phase applies.
 
 The drift gate maps each document to the code that implements it.
 
-| Document        | Roots                                      |
-| --------------- | ------------------------------------------ |
-| architecture.md | `lib`, `share`, `t`                        |
-| guests.md       | `lib`, `share`, `bin`, `t`                 |
-| release.md      | `Makefile`, `scripts`, `.github/workflows` |
+| Document        | Roots                                               |
+| --------------- | --------------------------------------------------- |
+| architecture.md | `lib`, `share`, `t`                                 |
+| guests.md       | `lib`, `share`, `bin`, `t`                          |
+| release.md      | `GNUmakefile`, `mk`, `scripts`, `.github/workflows` |
 
 ## Retired IDs
 

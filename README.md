@@ -47,11 +47,11 @@ in a `.pod` sidecar; start with `lib/App/FuguVM.pod`.
 ## Commands
 
 ```sh
-make check          # lint + test + tidy + spec-check + ste-lint
+make check          # lint + format + test + spec-check + ste-lint
 make test           # prove -l -v t/{fuguvm,scripts,ci}/*.t
 prove -l t/fuguvm/foo.t    # one test file
-make tidy-fix       # auto-fix Perl formatting
-make prettier       # Markdown/JSON/YAML formatting check
+make format-fix     # auto-fix Perl formatting
+make format-md      # Markdown/JSON/YAML formatting check
 make dist           # build the release tarball
 ```
 

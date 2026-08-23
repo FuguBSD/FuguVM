@@ -21,7 +21,8 @@ on:
       # necessary because the files in scripts/ have no extension.
       - "scripts/*"
       # The toolchain and the dependency set that the job installs
-      - "Makefile"
+      - "GNUmakefile"
+      - "mk/*"
       - "cpanfile"
       - "deps/*.txt"
       - ".toolingrc"
@@ -35,7 +36,8 @@ on:
       - "t/**.t"
       - "share/**"
       - "scripts/*"
-      - "Makefile"
+      - "GNUmakefile"
+      - "mk/*"
       - "cpanfile"
       - "deps/*.txt"
       - ".toolingrc"
