@@ -99,6 +99,45 @@ C<cache_dir> is folded in on purpose. Without it, C<fuguvm up> would
 write its images under C<$HOME> while the cache subcommands worked on
 a different tree.
 
+=head2 The install modes
+
+The loader derives C<install_mode> from the directives, and there is
+no C<install_mode> directive. Every module downstream reads that one
+field, and no module compares the directives again.
+
+    neither directive     expect       install with install.exp
+    autoinstall <file>    autoinstall  install from the response file
+    base_disk <path>      import       overlay an existing image
+
+C<autoinstall> names an autoinstall(8) response file. C<base_disk>
+names an existing full-disk image; C<qemu-img> reads a qcow2 file and
+a raw file. C<root_password_file> names a file whose first line is
+the root password of the image. Each of the three values is a path: a
+leading tilde expands, and a relative path resolves against the
+project root. The loader validates each path one time, and the file
+must be readable.
+
+The loader refuses these configurations, and C<error> names the
+cause:
+
+=over 4
+
+=item * An absent or unreadable C<autoinstall>, C<base_disk> or
+C<root_password_file> file. The message names the resolved path.
+
+=item * C<autoinstall> together with C<base_disk>. One guest has one
+origin.
+
+=item * C<base_disk> with C<image_cache no>. An imported base lives
+in the cache.
+
+=item * C<ssh_pubkey> without C<root_password_file>, outside the
+expect mode. The tool cannot install a key without a password, and
+the message names both remedies: add C<root_password_file>, or unset
+C<ssh_pubkey> and bake the key into the image.
+
+=back
+
 =head2 error
 
 Return the reason of the last failed C<load_vm>, or C<undef>.

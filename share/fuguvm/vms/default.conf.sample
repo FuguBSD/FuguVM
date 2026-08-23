@@ -12,6 +12,9 @@ vm "default" {
 	ssh_port     2222
 	console_port 4444
 	bind_address 127.0.0.1
+
+	# Optional: install from an autoinstall(8) response file
+	# autoinstall  install.conf
 }
 
 # Example: dedicated integration test VM

@@ -96,6 +96,27 @@ sub run_install ( $self, $config )
 	);
 }
 
+# $self->run_autoinstall($config):
+#	Start an autoinstall(8) over the serial console. The script
+#	answers the install prompt and the response-file prompt, and
+#	the response file answers everything else. The configuration
+#	gives the response-file URL and the architecture.
+#
+#	The method calls _expect, like run_install, and it must not use
+#	run_script: run_script needs the execute bit, and an installed
+#	share tree does not keep it.
+sub run_autoinstall ( $self, $config )
+{
+	my $script = $self->script_path('autoinstall.exp');
+	unless ( defined $script ) {
+		Fugu::Log->default->error('Autoinstall script not found');
+		return 0;
+	}
+
+	return $self->_expect( $script, $config->{autoinstall_url},
+		$config->{arch} );
+}
+
 # $self->_expect($script, @args):
 #	Run expect(1) on the script, with the host and the port first.
 #	The scripts read their timeout from FUGUVM_TIMEOUT in the

@@ -45,6 +45,67 @@ the disk, start QEMU, install OpenBSD, and install the SSH key.
 The method is idempotent. A VM that already runs, and whose SSH key is
 current, returns success and changes nothing.
 
+=head1 INSTALL MODES
+
+C<install_mode> of the configuration selects the origin of the disk.
+L<App::FuguVM::Config> derives the value from the directives.
+
+In the C<expect> mode, C<up> installs with F<install.exp> over the
+serial console.
+
+In the C<autoinstall> mode, C<up> starts the mirror proxy, starts the
+L<App::FuguVM::Autoinstall> responder, and starts QEMU with the
+miniroot attached and with C<-no-reboot>. F<autoinstall.exp> then
+answers the install prompt with C<a> and types the response-file URL.
+The guest fetches the file through the QEMU gateway, applies every
+answer, and reboots itself; C<-no-reboot> makes QEMU exit instead, so
+the guest cannot install a second time, and the exit leaves a
+consistent disk. C<up> publishes the disk as a cache entry, exactly
+as after an expect install, and it stops the responder on every path
+out of the install. C<down> and C<destroy> also stop it. A failed
+autoinstall script gives exit code 9.
+
+In the C<import> mode, C<up> installs nothing. On the first run it
+publishes the C<base_disk> file as the cache entry of the derived
+key, with C<qemu-img convert>, and then overlays the working disk on
+the published entry. A later C<up> reads the file no more. The tool
+never writes to the source file. Every guest of the project derives
+the same key, and the population lock of the cache serializes the
+publication, so a parallel fleet publishes one time. Every cache verb
+and snapshot verb works on the imported entry. A cache miss with an
+absent source gives exit code 1, and the message names the path and
+the key.
+
+=head1 CREDENTIALS
+
+The tool generates a root password only in the C<expect> mode. In the
+C<autoinstall> mode the response file owns every credential, and in
+the C<import> mode the publisher of the image owns them. Outside the
+C<expect> mode, C<up> therefore behaves by configuration:
+
+=over 4
+
+=item * With C<ssh_pubkey> and C<root_password_file>: read the
+password from the first line of the file, store it in the state, and
+install the key over a password login, exactly as after an expect
+install. The tool warns when the file mode lets the group or another
+user read the file.
+
+=item * With no C<ssh_pubkey>: wait for SSH with the key of the
+operator. The image must trust that key already.
+
+=item * With C<ssh_pubkey> and no C<root_password_file>: the
+configuration loader refuses with exit code 3.
+
+=back
+
+A published image and a consuming host share one credential: the
+response file of the build sets the root password, the stack keeps
+the password in a file, and each consuming host names that file with
+C<root_password_file>. The metadata of an imported cache entry holds
+no root password, because the tool must not invent a credential for
+an image that it did not install.
+
 =head2 down, destroy, start, stop, status
 
 C<down> stops the proxy and then the VM, gracefully, and records a

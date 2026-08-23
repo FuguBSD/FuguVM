@@ -48,24 +48,52 @@ diagnostic names every valid key.
 C<fuguvm disk info> shares the printer, so its report follows the
 same C<key: value> contract on standard output.
 
+=head1 THE IMAGE EXPORT
+
+C<fuguvm image export E<lt>pathE<gt> [--format=qcow2|raw]> writes the
+installed base image of the invoked VM as a full-disk image. The
+source is the base image of the cache entry that backs the working
+disk; a snapshot layer resolves to the same entry. A standalone disk,
+from C<--no-cache> or C<image_cache no>, exports the working disk
+itself. The default format is C<qcow2>, and C<raw> writes the sparse
+raw form.
+
+The write goes through one temporary sibling,
+C<E<lt>pathE<gt>.tmp.E<lt>pidE<gt>>, and one rename, so a failure
+leaves no partial file behind. The command refuses a running guest
+with exit code 5, because a live overlay is not consistent. It
+refuses an existing target with exit code 1, because it must not
+overwrite an image that an operator published, and it creates no
+directory for the operator.
+
+The report follows the C<key: value> contract of C<status>: C<bytes>,
+C<format>, C<key> (empty for a standalone disk), C<path> and
+C<source>, with the two paths absolute.
+
 =head1 EXIT CODES
 
 The generic codes come from L<Fugu::CLI>: 0 success, 1 error, 2
 invalid arguments, 3 configuration error, 7 timeout.
 
-Code 2 also reports an unknown C<status> key.
+Code 1 also reports an C<image export> whose target exists, whose
+parent directory is absent, or whose guest has no installed disk, and
+an import whose C<base_disk> file is absent at a cache miss.
+
+Code 2 also reports an unknown C<status> key, and an C<image> call
+with no action, no path, or an unknown C<--format> value.
 
 Code 3 also reports an C<arch> value that is neither C<amd64> nor
 C<arm64>, and a QEMU binary of the architecture that is not on
 C<PATH>. An invalid C<bind_address>, C<ssh_port>, C<console_port> or
 C<qemu_version> value gives the same code. So does a QEMU version
-that does not match the pinned C<qemu_version>.
+that does not match the pinned C<qemu_version>, and each refusal of
+the image-lifecycle directives that L<App::FuguVM::Config> lists.
 
 These are the codes that mean something to a VM:
 
     4   the named VM is not in the configuration
     5   the VM runs and the command needs it stopped
-    9   an expect script failed
+    9   an expect script failed, the autoinstall script included
     11  the named snapshot does not exist
 
 Code 11 is scriptable: a script that runs C<snapshot restore ||

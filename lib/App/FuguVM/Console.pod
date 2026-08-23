@@ -59,6 +59,21 @@ password, the proxy URL that the guest fetches its sets through, and
 the architecture. The method passes them to F<install.exp> in that
 order, after the host and the port.
 
+=head2 run_autoinstall
+
+    $console->run_autoinstall(\%config)
+
+Start an autoinstall(8) over the console. The configuration gives
+C<autoinstall_url>, the URL that the guest fetches the response file
+from, and the architecture. The method passes them to
+F<autoinstall.exp> in that order, after the host and the port. The
+script answers the install prompt and the response-file prompt, and
+the response file answers every other installer question.
+
+The method calls C<_expect> directly, like C<run_install>, and it
+must not use C<run_script>: C<run_script> needs the execute bit, and
+an installed share tree does not keep it.
+
 =head2 run_script
 
     $console->run_script($script, @args)

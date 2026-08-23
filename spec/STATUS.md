@@ -34,7 +34,7 @@ phase applies.
 | [GST-ARCH](guests.md#gst-arch)                 | done    | —       | [Arch.pm](../lib/App/FuguVM/Arch.pm), [arch.t](../t/fuguvm/arch.t), [integration.yml](../.github/workflows/integration.yml)            |
 | [GST-FLEET](guests.md#gst-fleet)               | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [CLI.pm](../lib/App/FuguVM/CLI.pm), [guest.t](../t/fuguvm/guest.t), [cli.t](../t/fuguvm/cli.t) |
 | [GST-TRANSFER](guests.md#gst-transfer)         | open    | —       | —                                                                                                                                      |
-| [GST-IMAGES](guests.md#gst-images)             | open    | —       | —                                                                                                                                      |
+| [GST-IMAGES](guests.md#gst-images)             | done    | —       | [Autoinstall.pm](../lib/App/FuguVM/Autoinstall.pm), [autoinstall.t](../t/fuguvm/autoinstall.t), [diskcache.t](../t/fuguvm/diskcache.t) |
 | [REL-VERSION](release.md#rel-version)          | done    | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist)                                                                                      |
 | [REL-ASSETS](release.md#rel-assets)            | done    | —       | [release.yml](../.github/workflows/release.yml)                                                                                        |
 | [REL-BUILD](release.md#rel-build)              | done    | —       | [build.yml](../.github/workflows/build.yml)                                                                                            |

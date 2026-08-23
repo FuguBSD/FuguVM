@@ -49,28 +49,40 @@ because the root password does not open the image.
 =head2 Cache keys
 
 C<key> returns C<< <version>-<arch>-<hash8> >>. C<hash8> is a
-truncated SHA-256 over each input that shapes an installed disk. These
-inputs are:
+truncated SHA-256 over each input that shapes an installed disk, and
+the record follows the C<install_mode> of the configuration, because
+each mode shapes the disk with different inputs:
 
 =over 4
 
-=item * the OpenBSD version
+=item expect
 
-=item * the architecture, from the C<arch> value of the VM
-configuration
+The OpenBSD version, the architecture, the disk size, the mode, the
+contents of the F<install.exp> script that L<App::FuguVM::Console>
+resolves, and the contents of F<share/fuguvm/cache-generation>.
 
-=item * the disk size
+=item autoinstall
 
-=item * the contents of the F<install.exp> script that
-L<App::FuguVM::Console> resolves
+The same inputs, with two differences: the script is
+F<autoinstall.exp>, and the contents of the response file join the
+record. The response file answers every installer question, so it
+shapes the disk as much as an expect script does. Two response files
+give two keys, two entry directories and two immutable base images.
 
-=item * the contents of F<share/fuguvm/cache-generation>
+=item import
+
+The OpenBSD version, the architecture, the mode, and the generation
+file. No script installed an imported image, so the record holds no
+script digest, and an imported entry survives a change to a shipped
+expect script. An overlay inherits the virtual size of its base, so
+the record holds no disk size either, and each host of a fleet
+derives one key.
 
 =back
 
-The last file is a generation counter. Increase the number in this
-file when the install driver changes in a way that the F<install.exp>
-hash cannot see. One example is a change in how L<App::FuguVM::Guest> or
+The generation file is a counter. Increase the number in this file
+when the install driver changes in a way that the script hash cannot
+see. One example is a change in how L<App::FuguVM::Guest> or
 L<App::FuguVM::Console> drives the installer.
 
 The counter is a data file, not a constant in this module. Thus a

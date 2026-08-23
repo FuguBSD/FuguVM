@@ -159,6 +159,34 @@ and starts the VM,
 as necessary.
 The command is idempotent.
 .Pp
+The configuration selects one of three install modes.
+Without an origin directive,
+.Cm up
+installs with the shipped expect installer.
+With
+.Ar autoinstall Ar file ,
+it installs from an
+.Xr autoinstall 8
+response file:
+a local HTTP responder serves the file to the guest on the loopback
+address,
+the guest fetches it through the QEMU gateway,
+and the file answers every installer question.
+The responder replaces each
+.Ql @PROXY_URL@
+token in the file with the guest URL of the mirror proxy.
+QEMU runs with
+.Fl no-reboot
+for that installation,
+so the reboot at the end of the install cannot start a second one.
+With
+.Ar base_disk Ar path ,
+.Cm up
+installs nothing:
+it publishes the named image as a cache entry one time,
+and overlays the working disk on it.
+The two directives contradict each other.
+.Pp
 If the installed-image cache is on,
 .Cm up
 uses both sides of that cache.
@@ -363,6 +391,39 @@ for scripts.
 Without the flag,
 the output goes to standard error,
 the same as all other informational output.
+.It Cm image Cm export Ar path Op Fl Fl format Ns = Ns Cm qcow2 | raw
+Write the installed base image of the invoked VM as a full-disk image
+at
+.Ar path .
+The source is the base image of the cache entry that backs the
+working disk;
+a snapshot layer resolves to the same entry.
+A standalone disk
+.Pq from Fl Fl no-cache No or Ar image_cache no
+exports the working disk itself.
+The default format is
+.Cm qcow2 ,
+and
+.Cm raw
+writes the sparse raw form.
+Stop the VM first:
+a live overlay is not consistent,
+and the command refuses a running VM with exit code 5.
+An existing
+.Ar path
+causes exit code 1,
+because the command must not overwrite an image that an operator
+published.
+The write goes through one temporary sibling and one rename,
+so a failure leaves no partial file behind.
+The report on standard output follows the
+.Ar key : value
+contract of
+.Cm status ,
+with the keys
+.Ar bytes , format , key , path
+and
+.Ar source .
 .It Cm disk Cm check | repair | info
 Manage the VM disk image.
 .Cm check
@@ -410,21 +471,47 @@ is
 The
 .Ar hash
 part is a truncated SHA-256 over all inputs that shape an installed
-disk.
-These inputs are:
-the
+disk,
+and the inputs follow the install mode.
+The default mode hashes the
 .Ox
 version,
 the architecture,
 .Ar disk_size ,
+the mode,
 the contents of the
 .Pa install.exp
 installer script,
 and the contents of
 .Pa share/fuguvm/cache-generation .
+The autoinstall mode hashes
+.Pa autoinstall.exp
+instead of
+.Pa install.exp ,
+and the contents of the response file join the hash:
+two response files give two entries.
+The import mode hashes no script and no
+.Ar disk_size :
+no script installed the image,
+and an overlay inherits the virtual size of its base.
+Thus an imported entry survives a change to a shipped expect script,
+and every guest of a project derives the same key for one
+.Ar base_disk .
 The memory and port settings do not shape the disk,
 and the hash excludes them.
 Thus a change to them hits the same entry.
+.Pp
+An imported entry is write-once,
+like every other entry,
+and its snapshots work the same way.
+.Nm
+publishes the
+.Ar base_disk
+file into the cache with one
+.Xr qemu-img 1
+conversion,
+one time for each host,
+and it never writes to the source file.
 .Pp
 .Pa share/fuguvm/cache-generation
 is a generation counter.
@@ -474,7 +561,8 @@ Project configuration:
 .It Pa .fuguvm/vms/ Ns Ar name Ns Pa .conf
 Per-VM configuration:
 .Ar name , arch , version , memory , disk_size , ssh_port ,
-.Ar console_port , bind_address .
+.Ar console_port , bind_address , autoinstall , base_disk ,
+.Ar root_password_file .
 .It Pa .fuguvm/state/
 Runtime state
 .Pq PID files, sockets, disk images .
@@ -592,6 +680,37 @@ A value for
 that is neither yes nor no gives a warning and falls back to the
 default.
 An unrecognized spelling must not silently mean the opposite.
+.Pp
+.Ar autoinstall
+names an
+.Xr autoinstall 8
+response file,
+.Ar base_disk
+names an existing full-disk image
+.Pq qcow2 or raw ,
+and
+.Ar root_password_file
+names a file whose first line is the root password of the image.
+Each value is a path:
+a leading tilde expands,
+and a relative path resolves against the project root.
+The file must be readable when the configuration loads.
+The response file is an artifact of the operator,
+and
+.Nm
+validates no answer in it:
+.Xr autoinstall 8
+owns that grammar.
+Outside the default install,
+.Ar ssh_pubkey
+needs
+.Ar root_password_file ,
+so
+.Nm
+can install the key over a password login.
+A guest with no
+.Ar ssh_pubkey
+must trust the key of the operator already.
 .Sh EXIT STATUS
 .Nm
 exits with one of these values:
@@ -601,11 +720,28 @@ exits with one of these values:
 Success.
 .It 1
 General error.
+An
+.Cm image export
+whose target exists,
+whose parent directory is absent,
+or whose guest has no installed disk,
+and a
+.Ar base_disk
+file that is absent at a cache miss,
+also give this code.
 .It 2
 Invalid arguments.
 An unknown
 .Cm status
-key also gives this code.
+key,
+and an
+.Cm image
+call with no action,
+no path,
+or an unknown
+.Fl Fl format
+value,
+also give this code.
 .It 3
 Configuration error, or not in an
 .Nm
@@ -624,14 +760,35 @@ value,
 and a QEMU version that does not match the pinned
 .Ar qemu_version
 also give this code.
+So do an absent or unreadable
+.Ar autoinstall ,
+.Ar base_disk
+or
+.Ar root_password_file
+file,
+.Ar autoinstall
+together with
+.Ar base_disk ,
+.Ar base_disk
+with
+.Ar image_cache no ,
+and
+.Ar ssh_pubkey
+without
+.Ar root_password_file
+outside the default install.
 .It 4
 VM not found.
 .It 5
 The VM runs.
+An
+.Cm image export
+of a running VM also gives this code.
 .It 7
 Timeout in the wait for the VM.
 .It 9
-Expect script failed.
+Expect script failed,
+the autoinstall script included.
 .It 11
 Snapshot not found.
 .El
@@ -739,3 +896,23 @@ The password is then not a localhost-only secret.
 Apply the same rule to a
 .Ar cache_dir
 that has content.
+.Pp
+An
+.Xr autoinstall 8
+response file can hold the root password of the guest.
+The responder of the autoinstall mode binds
+.Li 127.0.0.1
+only,
+and the guest reaches it through the QEMU gateway,
+so no other machine can fetch the file.
+.Nm
+never copies the file into the cache or into the state directory,
+and the image-cache key holds a digest of the file,
+not its content.
+The first line of
+.Ar root_password_file
+is a secret of the same kind:
+.Nm
+reads the file where it needs the value,
+and it warns when the file mode lets the group or another user read
+it.

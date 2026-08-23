@@ -26,6 +26,7 @@ use v5.36;
 package App::FuguVM::Guest;
 
 use App::FuguVM::Arch;
+use App::FuguVM::Autoinstall;
 use App::FuguVM::Config;
 use App::FuguVM::Miniroot;
 use App::FuguVM::DiskCache;
@@ -43,11 +44,12 @@ use Fugu::SSH;
 use Fugu::Timeout;
 
 use constant {
-	EXIT_SUCCESS      => 0,
-	EXIT_ERROR        => 1,
-	EXIT_CONFIG_ERROR => 3,
-	EXIT_VM_RUNNING   => 5,
-	EXIT_TIMEOUT      => 7,
+	EXIT_SUCCESS       => 0,
+	EXIT_ERROR         => 1,
+	EXIT_CONFIG_ERROR  => 3,
+	EXIT_VM_RUNNING    => 5,
+	EXIT_TIMEOUT       => 7,
+	EXIT_EXPECT_FAILED => 9,
 
 	MEMORY_DEFAULT => '1G',
 	CPU_COUNT      => 2,
@@ -130,13 +132,40 @@ sub up ($self)
 		$state->clear_shutdown_state;
 	}
 
+	# The mode decides the origin of the disk. The configuration
+	# loader derives the value, and no module compares the
+	# directives again.
+	my $mode = $config->{install_mode} // 'expect';
+
 	# Derive the installed-image cache key one time only, before the
-	# installer runs. key() hashes install.exp at call time. An
+	# installer runs. key() hashes its script at call time. An
 	# install takes tens of minutes. A key derived again after the
 	# install would publish the image the OLD installer made under
 	# the NEW digest.
 	my $cache     = $self->_image_cache;
 	my $cache_key = defined $cache ? $cache->key($config) : undef;
+
+	# An imported base lives in the cache, so the import mode
+	# cannot run without one. The configuration loader refuses
+	# 'image_cache no'; this check covers 'up --no-cache'.
+	if ( $mode eq 'import' && !defined $cache ) {
+		$log->error(  "base_disk needs the image cache;"
+			    . " run 'fuguvm up' without --no-cache" );
+		return EXIT_CONFIG_ERROR;
+	}
+	if ( $mode eq 'import' && !defined $cache_key ) {
+		$log->error("Cannot derive the cache key of the imported base");
+		return EXIT_ERROR;
+	}
+
+	# Outside the expect mode the operator owns the credential.
+	# Seed the state from root_password_file, so the SSH key setup
+	# can authenticate. The state then behaves as after an expect
+	# install.
+	if ( $mode ne 'expect' && defined $config->{root_password_file} ) {
+		my $password = $self->_root_password;
+		$state->set_root_password($password) if defined $password;
+	}
 
 	# Restore from the installed-image cache when there is no disk
 	# yet. A miss can mean that a sibling run installs this entry
@@ -164,6 +193,22 @@ sub up ($self)
 				# sibling behind it needs only the entry.
 				close $cache_lock;
 				undef $cache_lock;
+			}
+
+			# The import mode installs nothing: publish the
+			# outside file as the entry, then overlay it. The
+			# lock above serializes the publication, so a
+			# parallel fleet publishes one time.
+			if ( !$state->disk_exists && $mode eq 'import' ) {
+				my $imported =
+				    $self->_import_base( $cache, $cache_key )
+				    && $self->_cache_restore( $cache,
+					$cache_key );
+				if ( defined $cache_lock ) {
+					close $cache_lock;
+					undef $cache_lock;
+				}
+				return EXIT_ERROR if !$imported;
 			}
 		}
 	}
@@ -251,10 +296,17 @@ sub up ($self)
 		# gateway.
 		my $install_proxy_url = $proxy_vm_url // 'none';
 
-		# Generate a strong random password for this installation
-		my $root_password = Fugu::Random->random_password(32);
-		$state->set_root_password($root_password);
-		$log->info("Generated secure root password");
+		# The tool owns the credential in the expect mode only.
+		# In the autoinstall mode the response file owns it, and
+		# the seeding above stored the operator's copy.
+		my $root_password;
+		if ( $mode eq 'expect' ) {
+			$root_password = $self->_root_password;
+			$state->set_root_password($root_password);
+		}
+		else {
+			$root_password = $state->get_root_password;
+		}
 
 		$log->info("Installing OpenBSD...");
 		my $expect = App::FuguVM::Console->new(
@@ -262,16 +314,23 @@ sub up ($self)
 			port => $self->console_port,
 		);
 
-		# Use the generated password for the installation
-		my $install_config = {
-			%$config,
-			root_password => $root_password,
-			proxy_url     => $install_proxy_url,
-		};
-		my $ok = $expect->run_install($install_config);
-		if ( !$ok ) {
-			$log->error("Installation failed");
-			return EXIT_ERROR;
+		if ( $mode eq 'autoinstall' ) {
+			my $failure =
+			    $self->_run_autoinstall( $expect, $proxy_vm_url );
+			return $failure if defined $failure;
+		}
+		else {
+			# Use the generated password for the installation
+			my $install_config = {
+				%$config,
+				root_password => $root_password,
+				proxy_url     => $install_proxy_url,
+			};
+			my $ok = $expect->run_install($install_config);
+			if ( !$ok ) {
+				$log->error("Installation failed");
+				return EXIT_ERROR;
+			}
 		}
 
 		$state->mark_installed( $config->{arch} );
@@ -331,8 +390,12 @@ sub up ($self)
 		$log->info("Started $config->{name} (PID: $pid)");
 
 		# Install the SSH authorized key for future key-based
-		# authentication
-		return $self->_complete_ssh_setup;
+		# authentication. Outside the expect mode a guest can
+		# carry no configured key: the image must trust the key
+		# of the operator already, and the wait below proves it.
+		if ( $mode eq 'expect' || $self->_needs_ssh_key_update ) {
+			return $self->_complete_ssh_setup;
+		}
 	}
 
 	# The VM is installed. Check if the SSH key must be installed or
@@ -514,9 +577,119 @@ sub _reparent_disk ( $self, $base )
 	return 1;
 }
 
+# $self->_import_base($cache, $key):
+#	Publish the configured base_disk as the cache entry of $key.
+#	The publication costs one conversion of the whole image, and
+#	it happens one time for each host: the entry is write-once,
+#	and every guest of the project derives the same key. The tool
+#	only reads the source file. The metadata holds no root
+#	password, because the tool must not invent a credential for an
+#	image that it did not install. Return 1 on success.
+sub _import_base ( $self, $cache, $key )
+{
+	my $config = $self->{config};
+	my $log    = $self->{log};
+	my $source = $config->{base_disk};
+
+	if ( !-f $source ) {
+		$log->error(  "The base_disk file is gone: $source"
+			    . " (cache miss for $key)" );
+		return 0;
+	}
+
+	$log->info("Publishing $source as $key...");
+	my $base = $cache->store(
+		$key, $source,
+		{
+			imported_from => $source,
+			install_mode  => 'import',
+			version       => $config->{version},
+		} );
+	if ( !defined $base ) {
+
+		# store is write-once, so a sibling can have published
+		# the entry inside the window. A lookup decides.
+		return defined $cache->lookup($key) ? 1 : 0;
+	}
+
+	$log->info("Published imported base: $base");
+	return 1;
+}
+
+# $self->_run_autoinstall($expect, $proxy_url):
+#	Start the responder, drive the autoinstall over the console,
+#	and stop the responder on every path out of the install.
+#	Return undef on success, and an exit code on failure.
+sub _run_autoinstall ( $self, $expect, $proxy_url = undef )
+{
+	my $log = $self->{log};
+
+	my $responder = $self->_autoinstall($proxy_url);
+	if ( !defined $responder->start ) {
+		$log->error( 'Responder did not start: '
+			    . ( $responder->error // 'unknown' ) );
+		return EXIT_ERROR;
+	}
+
+	my $url = $responder->guest_url;
+	$log->info("Responder started: $url");
+
+	my $ok = $expect->run_autoinstall(
+		{ %{ $self->{config} }, autoinstall_url => $url } );
+
+	$responder->stop;
+
+	if ( !$ok ) {
+		$log->error("Autoinstall failed");
+		return EXIT_EXPECT_FAILED;
+	}
+
+	return;
+}
+
+# $self->_root_password:
+#	Return the root password of this guest. The tool owns the
+#	credential in the expect mode, so the method generates one
+#	there. In every other mode the operator owns it, and the
+#	method returns the first line of root_password_file, with no
+#	trailing newline, or undef without the directive. Thus the
+#	secret has a short life in the process, and no configuration
+#	hash carries it.
+sub _root_password ($self)
+{
+	my $config = $self->{config};
+	my $mode   = $config->{install_mode} // 'expect';
+
+	if ( $mode eq 'expect' ) {
+		$self->{log}->info("Generated secure root password");
+		return Fugu::Random->random_password(32);
+	}
+
+	my $file = $config->{root_password_file};
+	return if !defined $file;
+
+	my $bits = ( stat $file )[2];
+	$self->{log}->warning("The group or other users can read $file")
+	    if defined $bits && $bits & 0044;
+
+	open my $fh, '<', $file or do {
+		$self->{log}->error("Cannot read $file: $!");
+		return;
+	};
+	my $line = <$fh>;
+	close $fh;
+	return if !defined $line;
+
+	chomp $line;
+	return $line;
+}
+
 sub down ($self)
 {
-	# Stop the proxy if it runs
+	# Stop the responder and the proxy if they run
+	if ( $self->_stop_autoinstall ) {
+		$self->{log}->info("Autoinstall responder stopped");
+	}
 	if ( $self->_stop_proxy ) {
 		$self->{log}->info("Proxy stopped");
 	}
@@ -530,7 +703,10 @@ sub destroy ($self)
 	my $log    = $self->{log};
 	my $config = $self->{config};
 
-	# Stop the proxy if it runs
+	# Stop the responder and the proxy if they run
+	if ( $self->_stop_autoinstall ) {
+		$log->info("Autoinstall responder stopped");
+	}
 	if ( $self->_stop_proxy ) {
 		$log->info("Proxy stopped");
 	}
@@ -997,6 +1173,36 @@ sub _proxy ($self)
 	);
 }
 
+# $self->_autoinstall($proxy_url):
+#	Build the responder supervisor over this VM's state and the
+#	guest URL of the mirror proxy.
+sub _autoinstall ( $self, $proxy_url = undef )
+{
+	my $state = $self->{state};
+
+	return App::FuguVM::Autoinstall->new(
+		file      => $self->{config}{autoinstall},
+		pidfile   => $state->autoinstall_pidfile,
+		store     => $state->store,
+		proxy_url => $proxy_url,
+		logfile   => $state->vm_state_dir . '/autoinstall.log',
+		log       => $self->{log},
+	);
+}
+
+# $self->_stop_autoinstall:
+#	Stop the responder if it runs. The method returns 1 when it
+#	stopped one, and 0 when there was none. It follows _stop_proxy.
+sub _stop_autoinstall ($self)
+{
+	my $responder = $self->_autoinstall;
+	return 0 unless $responder->is_running;
+
+	$responder->stop;
+
+	return 1;
+}
+
 # $self->_force_stop:
 #	Stop the QEMU process deterministically. Send SIGTERM first:
 #	QEMU exits and flushes its disk caches. Escalate to SIGKILL if
@@ -1096,10 +1302,7 @@ sub _start_qemu ( $self, $boot_image = undef )
 	    "file=$disk_path,format=qcow2,if=virtio,cache=writethrough";
 
 	# Boot image (CD-ROM) for installation
-	if ( defined $boot_image ) {
-		push @cmd, '-drive',
-		    "file=$boot_image,format=raw,if=virtio,readonly=on";
-	}
+	push @cmd, $self->_media_args($boot_image);
 
 	# Network with port forwarding, and the serial console on
 	# telnet
@@ -1165,6 +1368,24 @@ sub _start_qemu ( $self, $boot_image = undef )
 	}
 
 	return $pid;
+}
+
+# $self->_media_args($boot_image):
+#	Return the QEMU arguments of the install media, or an empty
+#	list when no media is attached. An autoinstall reboots
+#	itself, and the miniroot is still attached. -no-reboot makes
+#	the reboot an exit, so the guest cannot install a second
+#	time.
+sub _media_args ( $self, $boot_image = undef )
+{
+	return () if !defined $boot_image;
+
+	my @args =
+	    ( '-drive', "file=$boot_image,format=raw,if=virtio,readonly=on" );
+	push @args, '-no-reboot'
+	    if ( $self->{config}{install_mode} // '' ) eq 'autoinstall';
+
+	return @args;
 }
 
 # $self->_network_args:

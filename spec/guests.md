@@ -73,5 +73,23 @@ The mirror proxy caches the OpenBSD sets that an install fetches.
 
 ## Image lifecycle
 
-- **GST-IMAGES-1** — The tool must build, publish, fetch, and prune guest
-  images, so a fleet starts from a published image instead of a local install.
+Three tool surfaces carry an OpenBSD disk image through its whole life: the tool
+builds one image, it publishes the image as a file, and an other host consumes
+that file. Every surface is a tool surface, because a consumer must never load
+an `App::FuguVM` module.
+
+- **GST-IMAGES-1** — An `autoinstall <file>` directive must install the guest
+  from an autoinstall(8) response file, and the shipped expect installer must
+  stay the default. The tool must serve the file to the guest from the loopback
+  address only, and it must validate no answer in the file.
+- **GST-IMAGES-2** — `fuguvm image export <path>` must write the installed base
+  disk of the invoked VM as a full-disk image, as qcow2 by default and as a
+  sparse raw image with `--format=raw`, and it must not overwrite an existing
+  target.
+- **GST-IMAGES-3** — A `base_disk <path>` directive must make an existing
+  full-disk image the base image of a guest, published as one write-once cache
+  entry for the whole project, so the tool installs nothing and every cache verb
+  and snapshot verb works on the imported entry.
+- **GST-IMAGES-4** — The image-cache key must hash each input that shapes the
+  installed disk of its install mode, the response file included, and it must
+  hash no script that the install never ran.
