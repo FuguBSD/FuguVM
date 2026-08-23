@@ -29,6 +29,7 @@ use App::FuguVM::Arch;
 use App::FuguVM::Autoinstall;
 use App::FuguVM::Config;
 use App::FuguVM::Miniroot;
+use App::FuguVM::Mirror;
 use App::FuguVM::DiskCache;
 use App::FuguVM::Disk;
 use App::FuguVM::Console;
@@ -237,17 +238,18 @@ sub up ($self)
 
 	if ( !$state->is_installed ) {
 		$log->info("Checking OpenBSD image...");
-		my $image = App::FuguVM::Miniroot->new( $self->_cache_dir,
-			$proxy, $config->{arch} );
-		$image_path = $image->ensure( $config->{version} );
+		my $mirror = $self->_mirror($proxy);
+		my $image  = App::FuguVM::Miniroot->new( $self->_cache_dir,
+			$proxy, $mirror );
+		$image_path = $image->ensure;
 
 		if ( !defined $image_path ) {
-			my $url = $image->url( $config->{version} );
+			my $url = $image->url;
 			$log->error(
-"Failed to download image for OpenBSD $config->{version}"
+"Failed to get a verified image for OpenBSD $config->{version}"
 			);
+			$log->error( $mirror->error ) if defined $mirror->error;
 			$log->error("URL: $url");
-			$log->error("Try downloading manually: curl -fLO $url");
 			return EXIT_ERROR;
 		}
 
@@ -321,15 +323,13 @@ sub up ($self)
 		}
 		else {
 			# Use the generated password for the installation
-			my $install_config = {
-				%$config,
-				root_password => $root_password,
-				proxy_url     => $install_proxy_url,
-			};
-			my $ok = $expect->run_install($install_config);
+			my $ok = $expect->run_install(
+				$self->_install_config(
+					$root_password, $install_proxy_url
+				) );
 			if ( !$ok ) {
 				$log->error("Installation failed");
-				return EXIT_ERROR;
+				return EXIT_EXPECT_FAILED;
 			}
 		}
 
@@ -616,6 +616,46 @@ sub _import_base ( $self, $cache, $key )
 	return 1;
 }
 
+# $self->_install_config($root_password, $proxy_url):
+#	Return the configuration of one expect install. The verify
+#	flag rides along as the word that the script reads: 'yes' or
+#	'no'.
+sub _install_config ( $self, $root_password, $proxy_url )
+{
+	return {
+		%{ $self->{config} },
+		root_password => $root_password,
+		proxy_url     => $proxy_url // 'none',
+		verify => ( $self->{config}{verify} // 1 ) ? 'yes' : 'no',
+	};
+}
+
+# $self->_mirror($proxy):
+#	Build the mirror of this guest over the cache of the proxy. A
+#	run without a proxy still verifies: the mirror then builds a
+#	cache over the same directory.
+sub _mirror ( $self, $proxy = undef )
+{
+	my $config = $self->{config};
+
+	my $cache =
+	    defined $proxy
+	    ? $proxy->cache
+	    : App::FuguVM::Proxy::Cache->new( $self->_cache_dir );
+
+	return App::FuguVM::Mirror->new(
+		cache   => $cache,
+		version => $config->{version},
+		arch    => $config->{arch},
+		verify  => $config->{verify} // 1,
+		(
+			defined $config->{signify_dir}
+			? ( keys_dir => $config->{signify_dir} )
+			: ()
+		),
+	);
+}
+
 # $self->_run_autoinstall($expect, $proxy_url):
 #	Start the responder, drive the autoinstall over the console,
 #	and stop the responder on every path out of the install.
@@ -864,6 +904,13 @@ sub status ($self)
 		console_port => $self->console_port,
 		installed    => $state->is_installed ? 1 : 0,
 		disk_exists  => $state->disk_exists  ? 1 : 0,
+
+		# The proxy URL as the guest reaches it, or empty while
+		# the proxy does not run. The port changes between runs,
+		# so a consumer reads the value here and must not write
+		# it in a file. Scalar context: a bare return would
+		# collapse the pair.
+		proxy_url => scalar $self->_proxy->guest_url,
 	};
 }
 
@@ -1134,6 +1181,10 @@ sub _ensure_proxy ($self)
 	my $proxy = $self->_proxy;
 	return $proxy if $proxy->is_running;
 
+	# The spawn passes a fixed argument list, so the distfile cap
+	# reaches the child through the environment.
+	$ENV{FUGUVM_DISTFILE_LIMIT} = $self->{config}{distfile_cache} // 0;
+
 	unless ( defined $proxy->start ) {
 		$self->{log}->warning(
 			'Proxy did not start: %s',
@@ -1165,7 +1216,9 @@ sub _proxy ($self)
 	my $state = $self->{state};
 
 	return App::FuguVM::Proxy->new(
-		cache   => App::FuguVM::Proxy::Cache->new( $self->_cache_dir ),
+		cache => App::FuguVM::Proxy::Cache->new(
+			$self->_cache_dir, $self->{config}{distfile_cache} // 0
+		),
 		pidfile => $state->proxy_pidfile,
 		store   => $state->store,
 		logfile => $state->vm_state_dir . '/proxy.log',

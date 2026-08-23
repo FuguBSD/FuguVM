@@ -2,6 +2,7 @@ runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.g
 runtime pkg qemu
 runtime pkg expect
 runtime pkg telnet
+runtime pkg signify-osx
 runtime pkg libssh2
 runtime cpan Net::SSH2
 runtime cpan HTTP::Daemon

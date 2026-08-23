@@ -227,6 +227,39 @@ sub load_vm ( $self, $name )
 	    ? $self->_bool( $vm->{image_cache}, 1 )
 	    : $self->image_cache;
 
+	# Normalize the verification switch the same way
+	$vm->{verify} =
+	    defined $vm->{verify}
+	    ? $self->_bool( $vm->{verify}, 1 )
+	    : $self->verify;
+
+	# Resolve the signify_dir directive, from the VM block or the
+	# enclosing configuration. This loader is the boundary of the
+	# directive: an absent or unreadable directory fails here, not
+	# deep inside an install.
+	$vm->{signify_dir} =
+	    defined $vm->{signify_dir}
+	    ? $self->_resolve_path( $vm->{signify_dir} )
+	    : $self->signify_dir;
+	if ( defined $vm->{signify_dir} && !-d $vm->{signify_dir} ) {
+		$self->{error} =
+		    sprintf( "VM '%s': signify_dir is not a directory: %s",
+			$name, $vm->{signify_dir} );
+		return;
+	}
+
+	# Include the distfile cap of the project. The distfile tree is
+	# one tree under cache_dir, and each guest of a project shares
+	# it, so the cap is a project fact and not a per-guest
+	# directive. A cap in a VM block would silently not apply, so
+	# the operator hears about it, like an unrecognized switch.
+	Fugu::Log->default->warning(
+		"VM '%s': distfile_cache lives in the project or the"
+		    . ' global .fuguvmrc, not in a VM declaration',
+		$name
+	) if defined $vm->{distfile_cache};
+	$vm->{distfile_cache} = $self->distfile_cache;
+
 	return if !$self->_validate_origin( $name, $vm );
 
 	return $vm;
@@ -373,6 +406,66 @@ sub image_cache ($self)
 	return 1 if !defined $value;
 
 	return $self->_bool( $value, 1 );
+}
+
+# $self->verify:
+#	Return whether the tool verifies each mirror download. The
+#	project configuration wins over the global one. The default is
+#	on.
+sub verify ($self)
+{
+	my $value = $self->_setting('verify');
+	return 1 if !defined $value;
+
+	return $self->_bool( $value, 1 );
+}
+
+# $self->signify_dir:
+#	Return the resolved directory of the signify public keys, or
+#	undef without the directive. A leading tilde expands, and a
+#	relative path resolves against the project root.
+sub signify_dir ($self)
+{
+	my $dir = $self->_setting('signify_dir');
+	return if !defined $dir;
+
+	return $self->_resolve_path($dir);
+}
+
+# $self->distfile_cache:
+#	Return the distfile cap in bytes. The default is 0, and 0
+#	turns the distfile cache off. An unparsable value gives one
+#	warning and the value 0: an unrecognized spelling must not
+#	silently mean its opposite, and off is the closed state for a
+#	cache.
+sub distfile_cache ($self)
+{
+	my $value = $self->_setting('distfile_cache');
+	return 0 if !defined $value;
+
+	my $bytes = _parse_size($value);
+	if ( !defined $bytes ) {
+		Fugu::Log->default->warning(
+			"distfile_cache '%s' is not a size; the cache is off",
+			$value );
+		return 0;
+	}
+
+	return $bytes;
+}
+
+# _parse_size($value):
+#	Return the byte count of a size, or undef. The value is a bare
+#	number of bytes, or a number with a K, M or G suffix. The
+#	suffix is 1024-based, and the letter case does not matter.
+sub _parse_size ($value)
+{
+	my ( $number, $suffix ) = $value =~ /\A([0-9]+)([KkMmGg]?)\z/;
+	return if !defined $number;
+
+	my %scale = ( '' => 1, k => 1024, m => 1024**2, g => 1024**3 );
+
+	return $number * $scale{ lc $suffix };
 }
 
 # $self->_bool($value, $default):

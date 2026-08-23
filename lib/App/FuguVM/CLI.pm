@@ -28,6 +28,7 @@ use App::FuguVM::Config;
 use App::FuguVM::Disk;
 use App::FuguVM::Console;
 use App::FuguVM::DiskCache;
+use App::FuguVM::Mirror;
 use App::FuguVM::Proxy;
 use App::FuguVM::Remote;
 use App::FuguVM::State;
@@ -125,6 +126,11 @@ my %COMMANDS = (
 		usage   => '<list|clear> [--stale]',
 		options => { 'stale' => 'keep the entry the current VM uses' },
 		method  => 'cmd_cache',
+	},
+	mirror => {
+		summary => 'Fetch and verify OpenBSD mirror files',
+		usage   => '<fetch <file>|verify>',
+		method  => 'cmd_mirror',
 	},
 	snapshot => {
 		summary => 'Manage snapshots (save, restore, rm, list)',
@@ -636,14 +642,13 @@ sub _cache_list ( $self, $cache )
 
 # $self->_proxy_list:
 #	Show what the download cache of the proxy holds, one line for
-#	each OpenBSD version. 'cache list' reports it because it shares
-#	cache_dir with the images, and the same 'cache clear' prunes
-#	it. A half of the directory that nothing printed was a half
-#	nobody knew to bound.
+#	each OpenBSD version, and one line for the distfile tree.
+#	'cache list' reports it because it shares cache_dir with the
+#	images, and the same 'cache clear' prunes it. A half of the
+#	directory that nothing printed was a half nobody knew to bound.
 sub _proxy_list ($self)
 {
-	my $cache =
-	    App::FuguVM::Proxy::Cache->new( $self->{config}->cache_dir );
+	my $cache = $self->_proxy_cache;
 	my $files = $cache->list;
 
 	if ( !@$files ) {
@@ -653,11 +658,13 @@ sub _proxy_list ($self)
 
 	# Group the sizes per version, because 'clear --stale' prunes
 	# at that granularity. The code counts a URL that names no
-	# version under '-' and does not drop it. is_cacheable() admits
-	# no such URL today. Thus an entry that cannot be pruned is
-	# still visible as one.
+	# version under '-' and does not drop it. Thus an entry that
+	# cannot be pruned is still visible as one. A distfile carries
+	# no version, so the grouping excludes the distfile tree: its
+	# own line below reports it against the cap.
 	my %bytes;
 	for my $file (@$files) {
+		next if $file->{url} =~ m{/pub/OpenBSD/distfiles/};
 		my ($version) =
 		    $file->{url} =~ m{/pub/OpenBSD/(?:syspatch/)?([0-9.]+)/};
 		$bytes{ $version // '-' } += $file->{size};
@@ -672,7 +679,32 @@ sub _proxy_list ($self)
 			$version, _format_size( $bytes{$version} ) );
 	}
 
+	# The distfile line: the size against the cap, or the size with
+	# a note that nothing bounds new content. The line stays absent
+	# while the tree is empty.
+	my $distfiles = $cache->distfile_size;
+	my $limit     = $cache->distfile_limit;
+	if ( $distfiles > 0 ) {
+		$self->{log}->info(
+			$limit > 0
+			? sprintf(
+				'Distfiles: %s of %s',
+				_format_size($distfiles),
+				_format_size($limit) )
+			: sprintf( 'Distfiles: %s, caching off',
+				_format_size($distfiles) ) );
+	}
+
 	return EXIT_SUCCESS;
+}
+
+# $self->_proxy_cache:
+#	Build the proxy cache of the project, with the distfile cap of
+#	the configuration.
+sub _proxy_cache ($self)
+{
+	return App::FuguVM::Proxy::Cache->new( $self->{config}->cache_dir,
+		$self->{config}->distfile_cache );
 }
 
 # $self->_cache_clear($cli, $cache, @args):
@@ -748,8 +780,7 @@ sub _cache_clear ( $self, $cli, $cache, @args )
 #	need.
 sub _proxy_clear ( $self, $stale )
 {
-	my $cache =
-	    App::FuguVM::Proxy::Cache->new( $self->{config}->cache_dir );
+	my $cache = $self->_proxy_cache;
 
 	if ( !$stale ) {
 		my $size = $cache->size;
@@ -776,7 +807,150 @@ sub _proxy_clear ( $self, $stale )
 	}
 	$self->{log}->info('No proxy downloads removed') if !@$removed;
 
+	# A distfile carries no version, so the version rule above
+	# cannot decide about the distfile tree. --stale keeps the
+	# tree, because a refill is expensive, and re-applies the cap.
+	# With a cap of 0 no cap applies here, and the flag keeps the
+	# whole tree.
+	if ( $cache->distfile_limit > 0 ) {
+		my $trimmed = $cache->trim_distfiles;
+		if (@$trimmed) {
+			my $bytes = 0;
+			$bytes += $_->{size} for @$trimmed;
+			$self->{log}->info( sprintf 'Removed %s of distfiles',
+				_format_size($bytes) );
+		}
+	}
+
 	return EXIT_SUCCESS;
+}
+
+# The mirror subcommand: fetch one verified file of the release, or
+# verify the cached files of the version and the architecture of the
+# invoked guest.
+sub cmd_mirror ( $self, $cli, @args )
+{
+	my $action = shift @args;
+	if ( !defined $action || $action !~ /^(fetch|verify)$/ ) {
+		$self->{log}
+		    ->error('Usage: fuguvm mirror <fetch <file>|verify>');
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $vm_config = $self->{config}->load_vm( $self->{vm_name} );
+	if ( !defined $vm_config ) {
+		my $reason = $self->{config}->error;
+		$self->{log}
+		    ->error( $reason // "VM '$self->{vm_name}' not found" );
+		return defined $reason ? EXIT_CONFIG_ERROR : EXIT_VM_NOT_FOUND;
+	}
+
+	# The verify verb proves; a 'verify no' directive must not turn
+	# it into a walk that proves nothing.
+	my $verifies = $action eq 'verify' ? 1 : $vm_config->{verify} // 1;
+	my $mirror   = App::FuguVM::Mirror->new(
+		cache   => $self->_proxy_cache,
+		version => $vm_config->{version},
+		arch    => $vm_config->{arch},
+		verify  => $verifies,
+		(
+			defined $vm_config->{signify_dir}
+			? ( keys_dir => $vm_config->{signify_dir} )
+			: ()
+		),
+	);
+
+	# An absent public key for the version is a configuration
+	# error, apart from a failed download or a failed signature.
+	if ( $verifies && !defined $mirror->key_path ) {
+		$self->{log}->error( $mirror->error );
+		return EXIT_CONFIG_ERROR;
+	}
+
+	if ( $action eq 'verify' ) {
+		if (@args) {
+			$self->{log}->error('Usage: fuguvm mirror verify');
+			return EXIT_INVALID_ARGS;
+		}
+		return $self->_mirror_verify($mirror);
+	}
+	return $self->_mirror_fetch( $mirror, @args );
+}
+
+# $self->_mirror_fetch($mirror, @args):
+#	Fetch, verify and cache one file of the release, and write the
+#	cached path to standard output, where a script can read it.
+#	The scope comes from the manifests: the release scope when the
+#	manifest of the architecture directory names the file, and the
+#	source scope otherwise. Both manifests are authoritative
+#	lists, so the tool guesses nothing.
+sub _mirror_fetch ( $self, $mirror, @args )
+{
+	my ( $file, @extra ) = @args;
+	if ( !defined $file || @extra ) {
+		$self->{log}->error('Usage: fuguvm mirror fetch <file>');
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $scope;
+	for my $candidate (qw(release source)) {
+		my $names = $mirror->manifest_names($candidate);
+		if ( !defined $names ) {
+			$self->{log}->error( $mirror->error );
+			return EXIT_ERROR;
+		}
+		if ( grep { $_ eq $file } @$names ) {
+			$scope = $candidate;
+			last;
+		}
+	}
+	if ( !defined $scope ) {
+		$self->{log}->error("No manifest of the release names '$file'");
+		return EXIT_ERROR;
+	}
+
+	my $path = $mirror->ensure( $scope, $file );
+	if ( !defined $path ) {
+		$self->{log}->error( $mirror->error );
+		return EXIT_ERROR;
+	}
+
+	say $path;
+	return EXIT_SUCCESS;
+}
+
+# $self->_mirror_verify($mirror):
+#	Verify every cached file of the two scopes. The verb removes
+#	each file that failed, in its own scope only, because a file
+#	that fails a digest must not stay in a cache that a later run
+#	reads and a same-named file of the other scope failed nothing.
+#	It must not remove an unknown file: a name that no manifest
+#	holds is not a failure, and index.txt is such a name on every
+#	mirror. The verb is idempotent: a second run over a clean
+#	cache removes nothing and exits 0.
+sub _mirror_verify ( $self, $mirror )
+{
+	my $report = $mirror->verify_cache;
+	if ( !defined $report ) {
+		$self->{log}->error( $mirror->error );
+		return EXIT_ERROR;
+	}
+
+	for my $entry ( @{ $report->{failed} } ) {
+		$self->{log}->error( sprintf 'Verification failed: %s/%s',
+			$entry->{scope}, $entry->{name} );
+		my $path =
+		    $mirror->cached_path( $entry->{scope}, $entry->{name} );
+		unlink $path if defined $path && -f $path;
+	}
+
+	$self->{log}->info(
+		sprintf 'Verified: %d ok, %d failed, %d unknown',
+		scalar @{ $report->{ok} },
+		scalar @{ $report->{failed} },
+		scalar @{ $report->{unknown} } );
+
+	return @{ $report->{failed} } ? EXIT_ERROR : EXIT_SUCCESS;
 }
 
 # $self->_current_cache_key($cache):

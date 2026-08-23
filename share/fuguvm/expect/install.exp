@@ -2,7 +2,7 @@
 #
 # Automated OpenBSD installation over the serial console
 #
-# Usage: install.exp <host> <port> <root_password> <proxy_url> <arch>
+# Usage: install.exp <host> <port> <root_password> <proxy_url> <arch> <verify>
 #
 
 # Use FUGUVM_TIMEOUT from the environment when it exceeds the
@@ -18,9 +18,9 @@ proc env_timeout {default} {
 
 set timeout [env_timeout 300]
 
-set usage "Usage: install.exp <host> <port> <root_password> <proxy_url> <arch>"
+set usage "Usage: install.exp <host> <port> <root_password> <proxy_url> <arch> <verify>"
 
-if {[llength $argv] != 5} {
+if {[llength $argv] != 6} {
     puts stderr $usage
     exit 1
 }
@@ -30,6 +30,7 @@ set port [lindex $argv 1]
 set root_password [lindex $argv 2]
 set proxy_url [lindex $argv 3]
 set arch [lindex $argv 4]
+set verify [lindex $argv 5]
 
 if {$root_password eq ""} {
     set root_password "openbsd"
@@ -42,6 +43,12 @@ if {$proxy_url eq ""} {
 # The configuration loader of fuguvm validates the value, so this
 # exit guards a manual run only.
 if {$arch ne "amd64" && $arch ne "arm64"} {
+    puts stderr $usage
+    exit 1
+}
+
+# The configuration loader also normalizes the verify switch.
+if {$verify ne "yes" && $verify ne "no"} {
     puts stderr $usage
     exit 1
 }
@@ -222,10 +229,24 @@ expect "Set name(s)?" {
 expect "Set name(s)?" { respond "done" }
 
 # Wait for the sets to install. Then answer the prompt for more sets.
+#
+# The installer of a numbered release carries the release key in
+# bsd.rd, and the mirror serves SHA256.sig beside the sets, so the
+# installer verifies each set by itself. The verification prompt is
+# therefore a report of a broken mirror. With verify yes the script
+# must not answer it for the operator, and it stops. With verify no
+# the script answers yes and says that the guest installs unverified
+# sets.
 set timeout [env_timeout 900]
 expect {
-    "Continue without verification?" { 
-        respond "yes" 
+    "Continue without verification?" {
+        if {$verify eq "yes"} {
+            send_user "\n==> ERROR: The installer asked \"Continue without verification?\"\n"
+            send_user "==> The sets from cdn.openbsd.org did not verify in the guest\n"
+            exit 1
+        }
+        send_user "\n==> WARNING: The guest installs unverified sets\n"
+        respond "yes"
         exp_continue
     }
     "Location of sets?" { respond "done" }

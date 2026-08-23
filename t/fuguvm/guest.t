@@ -738,14 +738,15 @@ SKIP: {
 	require App::FuguVM::State;
 
 	my @keys = qw(accel arch bind_address console_port disk_exists
-	    installed name pid ssh_port state);
+	    installed name pid proxy_url ssh_port state);
 
 	my $root = tempdir(CLEANUP => 1);
 	my $state = App::FuguVM::State->new("$root/state", 'default');
 	my $vm = App::FuguVM::Guest->new(
 		config => { name => 'default', arch => 'amd64',
 		    ssh_port => 'auto', console_port => 'auto',
-		    bind_address => '127.0.0.1' },
+		    bind_address => '127.0.0.1',
+		    cache_dir => "$root/cache" },
 		state => $state,
 	);
 
@@ -757,6 +758,8 @@ SKIP: {
 	is($status->{ssh_port}, undef, 'auto with no record has no port');
 	is($status->{bind_address}, '127.0.0.1',
 	    'status reports the bind address');
+	is($status->{proxy_url}, undef,
+	    'proxy_url is empty while the proxy does not run');
 
 	$state->set_runtime(
 	    accel => 'tcg', ssh_port => 2255, console_port => 4455);
@@ -769,6 +772,74 @@ SKIP: {
 	is($status->{console_port}, 4455, 'for both directives');
 	is($status->{accel}, 'tcg', 'status reports the recorded accelerator');
 	$state->clear_vm_pid;
+
+	# status reports proxy_url from guest_url: the record of the
+	# proxy plus a live child. This test process stands in for the
+	# child.
+	$state->store->set(proxy_port => 8123);
+	$state->proxy_pidfile->write_pid($$);
+	is($vm->status->{proxy_url}, 'http://10.0.2.2:8123',
+	    'status reports proxy_url from guest_url');
+	$state->proxy_pidfile->remove;
+}
+
+# The expect install carries the verify flag, as the word that the
+# script reads by position
+{
+	my $on = App::FuguVM::Guest->new(
+	    config => { name => 'default', arch => 'arm64' });
+	my $config = $on->_install_config('secret', 'http://10.0.2.2:8080');
+	is($config->{verify}, 'yes', 'verify defaults to yes');
+	is($config->{root_password}, 'secret', 'the password rides along');
+	is($config->{proxy_url}, 'http://10.0.2.2:8080', 'and the proxy URL');
+
+	my $off = App::FuguVM::Guest->new(
+	    config => { name => 'default', arch => 'arm64', verify => 0 });
+	is($off->_install_config('secret', undef)->{verify}, 'no',
+	    'verify 0 reads as the word no');
+	is($off->_install_config('secret', undef)->{proxy_url}, 'none',
+	    'and no proxy reads as none');
+}
+
+# up sets FUGUVM_DISTFILE_LIMIT from the configuration before it
+# starts the proxy, so the spawned child inherits the cap
+{
+	require App::FuguVM::State;
+
+	my $root = tempdir(CLEANUP => 1);
+	my $state = App::FuguVM::State->new("$root/state", 'default');
+	my $vm = App::FuguVM::Guest->new(
+		config => { name => 'default', arch => 'arm64',
+		    version => '7.8', cache_dir => "$root/cache",
+		    distfile_cache => 4096 },
+		state => $state,
+		log   => TestLog->new,
+	);
+
+	# The stand-in start records the environment at spawn time and
+	# starts nothing.
+	my $seen;
+	{
+		no warnings 'redefine';
+		local *Fugu::Proxy::start = sub ($self) {
+			$seen = $ENV{FUGUVM_DISTFILE_LIMIT};
+			return 8080;
+		};
+		local $ENV{FUGUVM_DISTFILE_LIMIT};
+		ok(defined $vm->_ensure_proxy, '_ensure_proxy starts the proxy');
+	}
+	is($seen, 4096, 'the cap reaches the environment before the spawn');
+
+	# The proxy cache of the guest carries the same cap
+	is($vm->_proxy->cache->distfile_limit, 4096,
+	    'the proxy cache of the guest carries the cap');
+
+	# The mirror of the guest builds over the configured version
+	# and architecture
+	my $mirror = $vm->_mirror;
+	is($mirror->url('miniroot78.img'),
+	    'https://cdn.openbsd.org/pub/OpenBSD/7.8/arm64/miniroot78.img',
+	    '_mirror builds over the configured version and architecture');
 }
 
 done_testing();

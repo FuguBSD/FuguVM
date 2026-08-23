@@ -51,7 +51,7 @@ C<install_mode> of the configuration selects the origin of the disk.
 L<App::FuguVM::Config> derives the value from the directives.
 
 In the C<expect> mode, C<up> installs with F<install.exp> over the
-serial console.
+serial console. A failed install script gives exit code 9.
 
 In the C<autoinstall> mode, C<up> starts the mirror proxy, starts the
 L<App::FuguVM::Autoinstall> responder, and starts QEMU with the
@@ -75,6 +75,34 @@ publication, so a parallel fleet publishes one time. Every cache verb
 and snapshot verb works on the imported entry. A cache miss with an
 absent source gives exit code 1, and the message names the path and
 the key.
+
+=head1 THE VERIFICATION OF AN INSTALL
+
+Before the first boot, C<up> builds an L<App::FuguVM::Mirror> over
+the version, the architecture, the C<verify> switch and the
+C<signify_dir> directive of the configuration, and
+L<App::FuguVM::Miniroot> downloads the install media through it. The
+mirror proves the C<SHA256> manifest of the release under the release
+key, and it verifies the miniroot before the image enters the cache.
+The host must verify the miniroot, because the miniroot is the boot
+medium and no code in the guest inspects it before it runs. A
+verification failure stops the run with exit code 1, leaves no file
+in the cache, and the diagnostic holds the mirror reason. When
+signify(1) is absent on the host, the reason names the command and
+the packages.
+
+The guest verifies its own sets: the installer of a numbered release
+carries the release key in F<bsd.rd>, and the proxy serves
+F<SHA256.sig> beside each set. C<up> passes the C<verify> switch to
+F<install.exp>, and with C<verify yes> the script stops on the
+"Continue without verification?" prompt instead of answering it, with
+exit code 9. With C<verify no> the tool downloads without a proof,
+logs one warning, and the script waives the installer check with a
+warning of its own.
+
+C<up> also exports the C<distfile_cache> byte count as
+C<FUGUVM_DISTFILE_LIMIT> before it starts the proxy, so the proxy
+child holds the distfile tree under the cap.
 
 =head1 CREDENTIALS
 
@@ -111,7 +139,11 @@ an image that it did not install.
 C<down> stops the proxy and then the VM, gracefully, and records a
 clean shutdown. C<destroy> stops it and deletes the disk. C<start> and
 C<stop> are the narrow forms that do not touch the proxy. C<status>
-reports the state.
+reports the state, with C<proxy_url> from
+C<< App::FuguVM::Proxy->guest_url >>: the proxy URL as the guest
+reaches it, or C<undef> while the proxy does not run. The port
+changes between runs, so a consumer reads the value from C<status>
+and must not write it in a file.
 
 =head2 wait_ssh, is_running
 

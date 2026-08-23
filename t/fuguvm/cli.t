@@ -224,9 +224,12 @@ SKIP: {
     is(scalar(grep { !/^\w+: / } @lines), 0, 'each line matches ^\w+: ');
 
     for my $key (qw(accel arch bind_address console_port disk_exists
-	installed name pid ssh_port state)) {
+	installed name pid proxy_url ssh_port state)) {
 	is(scalar(grep { /^$key: / } @lines), 1, "the report holds $key");
     }
+
+    like($out, qr/^proxy_url: $/m,
+	'proxy_url is empty while the proxy does not run');
 
     like($out, qr/^bind_address: 127\.0\.0\.1$/m,
 	'the report holds the default bind address');
@@ -526,6 +529,177 @@ SKIP: {
     like($err, qr/OpenBSD 7\.7/, 'broken down by version');
     like($err, qr/No cached images/,
 	'and still says the images are empty');
+    unlike($err, qr/Distfiles/, 'an empty distfile tree has no line');
+}
+
+# The distfile line of cache list: the size against the cap, or the
+# size with a note that the cap is off. A distfile never joins the
+# per-version grouping, because it carries no version.
+{
+    my $project = _cache_project("distfile_cache 4G\n");
+    _fake_download($project, '7.8/arm64/base78.tgz');
+    _fake_distfile($project, 'gmake-4.4.1.tar.gz');
+
+    my $err = _capture_stderr($project, 'cache', 'list');
+    like($err, qr/Distfiles: \d+B of 4\.0G/,
+	'cache list reports the distfile size and the cap');
+    is(scalar(grep { /OpenBSD -/ } split /\n/, $err), 0,
+	'no distfile lands in the version grouping');
+
+    my $off = _cache_project();
+    _fake_distfile($off, 'gmake-4.4.1.tar.gz');
+    $err = _capture_stderr($off, 'cache', 'list');
+    like($err, qr/Distfiles: \d+B, caching off/,
+	'a tree with a cap of 0 reads as caching off');
+}
+
+# cache clear --stale keeps the distfile tree and re-applies the cap;
+# a bare clear removes the tree with everything else
+{
+    my $project = _cache_project("distfile_cache 4G\n");
+    _fake_download($project, '7.7/arm64/base77.tgz');
+    my $distfile = _fake_distfile($project, 'gmake-4.4.1.tar.gz');
+
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'cache', 'clear', '--stale'),
+	0, 'cache clear --stale succeeds');
+    ok(-f $distfile, '--stale keeps the distfile tree');
+
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'cache', 'clear'),
+	0, 'bare cache clear succeeds');
+    ok(!-e $distfile, 'and it removes the distfile tree with the rest');
+}
+
+# With a cap of 0 no cap applies to --stale, so the flag keeps the
+# whole tree: 0 turns the cache off for new stores, and it must not
+# read as "keep nothing" here.
+{
+    my $project = _cache_project();
+    my $distfile = _fake_distfile($project, 'gmake-4.4.1.tar.gz');
+
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'cache', 'clear', '--stale'),
+	0, 'cache clear --stale succeeds with a cap of 0');
+    ok(-f $distfile, 'and it keeps the distfile tree');
+}
+
+# ============================================================
+# The mirror subcommand
+# ============================================================
+
+# The argument refusals, each with exit code 2
+{
+    my $project = _cache_project();
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet', 'mirror'), 2,
+	'mirror without an action returns EXIT_INVALID_ARGS');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'mirror', 'frobnicate'),
+	2, 'an unknown mirror action returns EXIT_INVALID_ARGS');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'mirror', 'fetch'),
+	2, 'mirror fetch without a file returns EXIT_INVALID_ARGS');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'mirror', 'verify', 'extra'),
+	2, 'mirror verify with an argument returns EXIT_INVALID_ARGS');
+}
+
+# mirror verify over an empty cache exits 0: no manifest is cached,
+# so nothing needs a proof, and the verb is idempotent
+{
+    my $project = _cache_project();
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'mirror', 'verify'),
+	0, 'mirror verify over an empty cache exits 0');
+}
+
+# An absent public key for the version is a configuration error. The
+# share tree holds no key of version 6.0.
+{
+    my $project = _cache_project();
+    open my $fh, '>>', "$project/.fuguvmrc" or die $!;
+    print $fh "vm \"old\" {\n";
+    print $fh "\tversion 6.0\n";
+    print $fh "}\n";
+    close $fh;
+
+    my ($code, $out, $err) = _run_captured("--project=$project",
+	'--vm', 'old', 'mirror', 'verify');
+    is($code, 3, 'an absent release key exits with EXIT_CONFIG_ERROR');
+    like($err, qr/openbsd-60-base\.pub/, 'and the diagnostic names the key');
+}
+
+# The routing, the removal, and the forced proof, over a signed
+# fixture in the project cache
+SKIP: {
+    my $signify = _find_signify();
+    skip 'signify(1) not available', 15 if !defined $signify;
+
+    # fetch routes by the manifests and never guesses: a file of the
+    # release manifest reads from the release scope, a file of the
+    # source manifest reads from the source scope, and a name that
+    # neither holds is a refusal. Every file is cached, so no fetch
+    # reaches the network.
+    my $project = _signed_project($signify);
+    _fake_mirror_file($project, '7.8/arm64/base78.tgz', 'set bytes');
+    _fake_mirror_file($project, '7.8/ports.tar.gz', 'tree bytes');
+
+    my ($code, $out, $err) = _run_captured("--project=$project",
+	'--quiet', 'mirror', 'fetch', 'base78.tgz');
+    is($code, 0, 'fetch resolves a file of the release manifest');
+    like($out, qr{7\.8/arm64/base78\.tgz\n$}, 'from the release scope');
+
+    ($code, $out) = _run_captured("--project=$project",
+	'--quiet', 'mirror', 'fetch', 'ports.tar.gz');
+    is($code, 0, 'fetch resolves a file of the source manifest');
+    like($out, qr{7\.8/ports\.tar\.gz\n$}, 'from the source scope');
+
+    ($code, $out, $err) = _run_captured("--project=$project",
+	'mirror', 'fetch', 'nonsense.tgz');
+    is($code, 1, 'a name that no manifest holds is a refusal');
+    like($err, qr/nonsense\.tgz/, 'and the diagnostic names it');
+    is($out, '', 'and no path reaches standard output');
+
+    # verify removes a failed file in its own scope only, and it
+    # keeps an unknown file. The two scopes share the name
+    # base78.tgz: good in the release scope, tampered in the source
+    # scope.
+    $project = _signed_project($signify, 'base78.tgz');
+    my $good = _fake_mirror_file($project, '7.8/arm64/base78.tgz',
+	'set bytes');
+    my $bad = _fake_mirror_file($project, '7.8/base78.tgz',
+	'tampered bytes');
+    my $unknown = _fake_mirror_file($project, '7.8/arm64/index.txt',
+	'a listing');
+
+    ($code, $out, $err) = _run_captured("--project=$project",
+	'mirror', 'verify');
+    is($code, 1, 'verify exits 1 when one file failed');
+    like($err, qr{source/base78\.tgz}, 'the failed line carries the scope');
+    ok(!-f $bad, 'verify removes the failed file');
+    ok(-f $good, 'and keeps the same-named file that verified');
+    ok(-f $unknown, 'and keeps an unknown file');
+
+    ($code) = _run_captured("--project=$project", 'mirror', 'verify');
+    is($code, 0, 'a second run over the healed cache exits 0');
+
+    # The verify verb proves, whatever the verify directive says: a
+    # tampered manifest under 'verify no' still fails and leaves the
+    # cache.
+    $project = _signed_project($signify, undef, "verify no\n");
+    my $manifest =
+	"$project/cache/proxy/cdn.openbsd.org/pub/OpenBSD/7.8/arm64/SHA256";
+    open my $mh, '>>', $manifest or die $!;
+    print $mh "# one changed byte\n";
+    close $mh;
+
+    ($code, $out, $err) = _run_captured("--project=$project",
+	'mirror', 'verify');
+    is($code, 1, 'verify proves under a verify no directive');
+    like($err, qr{release/SHA256}, 'and reports the failed manifest');
+    ok(!-f $manifest, 'and the poisoned manifest left the cache');
 }
 
 # clear refuses while a VM runs on a disk that the entry backs
@@ -832,9 +1006,11 @@ subtest '_format_size' => sub {
 done_testing();
 
 # A project whose cache_dir points inside the project. Thus the tests
-# never touch the developer's real ~/.cache/fuguvm.
+# never touch the developer's real ~/.cache/fuguvm. The optional
+# argument appends top-level configuration lines.
 sub _cache_project
 {
+    my ($extra) = @_;
     my $project = tempdir(CLEANUP => 1);
     make_path("$project/.fuguvm/vms", "$project/.fuguvm/state");
 
@@ -842,6 +1018,7 @@ sub _cache_project
     print $fh "cache_dir $project/cache\n";
     print $fh "state_dir .fuguvm/state\n";
     print $fh "default_vm default\n";
+    print $fh $extra if defined $extra;
     print $fh "vm \"default\" {\n";
     print $fh "\tversion 7.8\n";
     print $fh "\tdisk_size 8G\n";
@@ -924,6 +1101,102 @@ sub _fake_download
     close $fh;
 
     return $dir;
+}
+
+# _find_signify():
+#	The signify command on PATH, in the search order of
+#	Fugu::Signify, or undef.
+sub _find_signify
+{
+    for my $name (qw(signify-openbsd signify)) {
+	for my $dir (split /:/, $ENV{PATH} // '') {
+	    next unless length $dir;
+	    my $path = "$dir/$name";
+	    return $path if -f $path && -x $path;
+	}
+    }
+
+    return undef;
+}
+
+# _fake_mirror_file($project, $relative, $bytes):
+#	One cached mirror file, seeded on disk at its mirror path.
+sub _fake_mirror_file
+{
+    my ($project, $rel, $bytes) = @_;
+    my $path = "$project/cache/proxy/cdn.openbsd.org/pub/OpenBSD/$rel";
+
+    $path =~ m{\A(.*)/} and make_path($1);
+    open my $fh, '>', $path or die $!;
+    print $fh $bytes;
+    close $fh;
+
+    return $path;
+}
+
+# _signed_project($signify, $source_extra, $extra_config):
+#	A cache project whose signify_dir holds a fresh key pair under
+#	the 7.8 release name, with a signed manifest seeded in each
+#	scope. The release manifest names base78.tgz with the digest
+#	of 'set bytes'. The source manifest names ports.tar.gz with
+#	the digest of 'tree bytes', and $source_extra, when given,
+#	with the digest of 'set bytes'.
+sub _signed_project
+{
+    my ($signify, $source_extra, $extra_config) = @_;
+
+    require Digest::SHA;
+
+    my $project = _cache_project(($extra_config // '')
+	. "signify_dir keys\n");
+    make_path("$project/keys");
+
+    system($signify, '-G', '-n',
+	'-p', "$project/keys/key.pub",
+	'-s', "$project/keys/key.sec") == 0
+	or die "signify -G failed\n";
+    rename "$project/keys/key.pub", "$project/keys/openbsd-78-base.pub"
+	or die "cannot rename the public key: $!\n";
+
+    my %manifest = (
+	'arm64/SHA256' => { 'base78.tgz' => 'set bytes' },
+	'SHA256'       => {
+	    'ports.tar.gz' => 'tree bytes',
+	    (defined $source_extra ? ($source_extra => 'set bytes') : ()),
+	},
+    );
+    for my $rel (sort keys %manifest) {
+	my $lines = '';
+	my $files = $manifest{$rel};
+	for my $name (sort keys %$files) {
+	    my $digest = Digest::SHA->new(256);
+	    $digest->add($files->{$name});
+	    $lines .= sprintf "SHA256 (%s) = %s\n", $name,
+		$digest->hexdigest;
+	}
+
+	my $path = _fake_mirror_file($project, "7.8/$rel", $lines);
+	system($signify, '-S', '-s', "$project/keys/key.sec",
+	    '-m', $path, '-x', "$path.sig") == 0
+	    or die "signify -S failed\n";
+    }
+
+    return $project;
+}
+
+# A cached distfile, seeded on disk like _fake_download
+sub _fake_distfile
+{
+    my ($project, $name) = @_;
+
+    my $path =
+	"$project/cache/proxy/cdn.openbsd.org/pub/OpenBSD/distfiles/$name";
+    $path =~ m{\A(.*)/} and make_path($1);
+    open my $fh, '>', $path or die $!;
+    print $fh 'not a real distfile';
+    close $fh;
+
+    return $path;
 }
 
 # A complete-looking cache entry without the cost of a real image

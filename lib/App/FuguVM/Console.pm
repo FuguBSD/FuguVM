@@ -79,7 +79,9 @@ sub run_script ( $self, $script, @args )
 }
 
 # $self->run_install($config):
-#	Drive a complete OpenBSD installation.
+#	Drive a complete OpenBSD installation. The script reads its
+#	arguments by position: the root password, the proxy URL, the
+#	architecture, and the verify word.
 sub run_install ( $self, $config )
 {
 	my $script = $self->script_path('install.exp');
@@ -93,6 +95,7 @@ sub run_install ( $self, $config )
 		$config->{root_password} // 'openbsd',
 		$config->{proxy_url}     // 'none',
 		$config->{arch},
+		$config->{verify} // 'yes',
 	);
 }
 

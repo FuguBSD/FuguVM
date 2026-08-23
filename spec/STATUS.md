@@ -20,24 +20,24 @@ phase applies.
 
 ## Units
 
-| Unit                                           | State   | Done by | Note                                                                                                                                   |
-| ---------------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| [ARC-NAMESPACE](architecture.md#arc-namespace) | done    | —       | [lib/App/FuguVM](../lib/App/FuguVM), [symbols.t](../t/scripts/symbols.t)                                                               |
-| [ARC-BOUNDARY](architecture.md#arc-boundary)   | done    | —       | [boundary.t](../t/fuguvm/boundary.t)                                                                                                   |
-| [ARC-SHARE](architecture.md#arc-share)         | done    | —       | [share/fuguvm](../share/fuguvm), [miniroot.t](../t/fuguvm/miniroot.t)                                                                  |
-| [ARC-PROGRAMS](architecture.md#arc-programs)   | n-a     | —       | Citation only.                                                                                                                         |
-| [GST-INSTALL](guests.md#gst-install)           | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t), [miniroot.t](../t/fuguvm/miniroot.t)                           |
-| [GST-CACHE](guests.md#gst-cache)               | done    | —       | [DiskCache.pm](../lib/App/FuguVM/DiskCache.pm), [diskcache.t](../t/fuguvm/diskcache.t)                                                 |
-| [GST-LIFECYCLE](guests.md#gst-lifecycle)       | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t)                                                                 |
-| [GST-HOSTS](guests.md#gst-hosts)               | done    | —       | [deps](../deps), [config.t](../t/fuguvm/config.t)                                                                                      |
-| [GST-MIRROR](guests.md#gst-mirror)             | partial | —       | The verification of GST-MIRROR-1 and GST-MIRROR-2 is absent. [Proxy.pm](../lib/App/FuguVM/Proxy.pm), [proxy.t](../t/fuguvm/proxy.t)    |
-| [GST-ARCH](guests.md#gst-arch)                 | done    | —       | [Arch.pm](../lib/App/FuguVM/Arch.pm), [arch.t](../t/fuguvm/arch.t), [integration.yml](../.github/workflows/integration.yml)            |
-| [GST-FLEET](guests.md#gst-fleet)               | done    | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [CLI.pm](../lib/App/FuguVM/CLI.pm), [guest.t](../t/fuguvm/guest.t), [cli.t](../t/fuguvm/cli.t) |
-| [GST-TRANSFER](guests.md#gst-transfer)         | done    | —       | [Remote.pm](../lib/App/FuguVM/Remote.pm), [remote.t](../t/fuguvm/remote.t), [cli.t](../t/fuguvm/cli.t)                                 |
-| [GST-IMAGES](guests.md#gst-images)             | done    | —       | [Autoinstall.pm](../lib/App/FuguVM/Autoinstall.pm), [autoinstall.t](../t/fuguvm/autoinstall.t), [diskcache.t](../t/fuguvm/diskcache.t) |
-| [REL-VERSION](release.md#rel-version)          | done    | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist)                                                                                      |
-| [REL-ASSETS](release.md#rel-assets)            | done    | —       | [release.yml](../.github/workflows/release.yml)                                                                                        |
-| [REL-BUILD](release.md#rel-build)              | done    | —       | [build.yml](../.github/workflows/build.yml)                                                                                            |
+| Unit                                           | State | Done by | Note                                                                                                                                   |
+| ---------------------------------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| [ARC-NAMESPACE](architecture.md#arc-namespace) | done  | —       | [lib/App/FuguVM](../lib/App/FuguVM), [symbols.t](../t/scripts/symbols.t)                                                               |
+| [ARC-BOUNDARY](architecture.md#arc-boundary)   | done  | —       | [boundary.t](../t/fuguvm/boundary.t)                                                                                                   |
+| [ARC-SHARE](architecture.md#arc-share)         | done  | —       | [share/fuguvm](../share/fuguvm), [miniroot.t](../t/fuguvm/miniroot.t)                                                                  |
+| [ARC-PROGRAMS](architecture.md#arc-programs)   | n-a   | —       | Citation only.                                                                                                                         |
+| [GST-INSTALL](guests.md#gst-install)           | done  | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t), [miniroot.t](../t/fuguvm/miniroot.t)                           |
+| [GST-CACHE](guests.md#gst-cache)               | done  | —       | [DiskCache.pm](../lib/App/FuguVM/DiskCache.pm), [diskcache.t](../t/fuguvm/diskcache.t)                                                 |
+| [GST-LIFECYCLE](guests.md#gst-lifecycle)       | done  | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t)                                                                 |
+| [GST-HOSTS](guests.md#gst-hosts)               | done  | —       | [deps](../deps), [config.t](../t/fuguvm/config.t)                                                                                      |
+| [GST-MIRROR](guests.md#gst-mirror)             | done  | —       | [Mirror.pm](../lib/App/FuguVM/Mirror.pm), [mirror.t](../t/fuguvm/mirror.t), [proxy.t](../t/fuguvm/proxy.t)                             |
+| [GST-ARCH](guests.md#gst-arch)                 | done  | —       | [Arch.pm](../lib/App/FuguVM/Arch.pm), [arch.t](../t/fuguvm/arch.t), [integration.yml](../.github/workflows/integration.yml)            |
+| [GST-FLEET](guests.md#gst-fleet)               | done  | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [CLI.pm](../lib/App/FuguVM/CLI.pm), [guest.t](../t/fuguvm/guest.t), [cli.t](../t/fuguvm/cli.t) |
+| [GST-TRANSFER](guests.md#gst-transfer)         | done  | —       | [Remote.pm](../lib/App/FuguVM/Remote.pm), [remote.t](../t/fuguvm/remote.t), [cli.t](../t/fuguvm/cli.t)                                 |
+| [GST-IMAGES](guests.md#gst-images)             | done  | —       | [Autoinstall.pm](../lib/App/FuguVM/Autoinstall.pm), [autoinstall.t](../t/fuguvm/autoinstall.t), [diskcache.t](../t/fuguvm/diskcache.t) |
+| [REL-VERSION](release.md#rel-version)          | done  | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist)                                                                                      |
+| [REL-ASSETS](release.md#rel-assets)            | done  | —       | [release.yml](../.github/workflows/release.yml)                                                                                        |
+| [REL-BUILD](release.md#rel-build)              | done  | —       | [build.yml](../.github/workflows/build.yml)                                                                                            |
 
 ## Update protocol
 

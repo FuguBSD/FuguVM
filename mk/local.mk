@@ -46,11 +46,13 @@ install: install-man
 	install -m 644 lib/App/FuguVM/*.pm lib/App/FuguVM/*.pod $(DESTDIR)$(LIBDIR)/App/FuguVM/
 	# Install the share tree where share_path finds it
 	install -d $(DESTDIR)$(SHAREDIST)/fuguvm/expect
+	install -d $(DESTDIR)$(SHAREDIST)/fuguvm/signify
 	install -d $(DESTDIR)$(SHAREDIST)/fuguvm/vms
 	install -d $(DESTDIR)$(SHAREDIST)/scripts
 	install -m 644 share/fuguvm/cache-generation $(DESTDIR)$(SHAREDIST)/fuguvm/
 	install -m 644 share/fuguvm/fuguvm.conf.sample $(DESTDIR)$(SHAREDIST)/fuguvm/
 	install -m 644 share/fuguvm/expect/*.exp $(DESTDIR)$(SHAREDIST)/fuguvm/expect/
+	install -m 644 share/fuguvm/signify/*.pub $(DESTDIR)$(SHAREDIST)/fuguvm/signify/
 	install -m 644 share/fuguvm/vms/*.sample $(DESTDIR)$(SHAREDIST)/fuguvm/vms/
 	install -m 755 scripts/ftp $(DESTDIR)$(SHAREDIST)/scripts/ftp
 
