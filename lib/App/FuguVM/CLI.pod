@@ -48,6 +48,47 @@ diagnostic names every valid key.
 C<fuguvm disk info> shares the printer, so its report follows the
 same C<key: value> contract on standard output.
 
+=head1 THE FOUR CONNECTION VERBS
+
+C<ssh>, C<put>, C<get> and C<console> each need a running guest. Each
+one checks first, and a guest that does not run gives exit code 1
+with a message that names the VM. L<App::FuguVM::Remote> holds the
+transport of the first three, and L<App::FuguVM::Console> holds the
+attachment.
+
+C<fuguvm ssh> with no argument opens an interactive session, and it
+returns the exit code of L<ssh(1)>. With arguments it runs one remote
+command. Each argument is one word of the argument vector: the tool
+quotes every word, so the remote shell performs no splitting, no
+expansion, and no globbing. Write C<--> before any word that starts
+with a hyphen, because the option parser reads such a word as an
+option of the tool and exits with code 2. A caller that wants a
+remote shell asks for one:
+
+    fuguvm ssh -- sh -c 'cd /src && make regress'
+
+The remote command gets no terminal and no standard input, and its
+output arrives when the command ends. The verb returns the exit code
+of the remote command. A connect failure reads as exit code 1, with a
+diagnostic on standard error.
+
+C<fuguvm put [--mode=E<lt>octalE<gt>] E<lt>localE<gt>
+E<lt>remoteE<gt>> copies a local file or a local directory into the
+guest, and C<fuguvm get E<lt>remoteE<gt> E<lt>localE<gt>> copies one
+guest file to the host. Each C<E<lt>remoteE<gt>> must be an absolute
+path. A bad argument count, a relative remote path, a C<--mode> value
+that is not 3 or 4 octal digits, a C<put> source that is neither a
+regular file nor a directory, and a C<get> destination that is an
+existing directory each give exit code 2. A failed transfer gives
+exit code 1. L<fuguvm(1)> holds the full transfer rules.
+
+C<fuguvm get> needs C<< Fugu::SSH->read_file >>. When the installed
+Fugu release has no such method, the verb logs the needed release and
+gives exit code 1.
+
+C<fuguvm console> attaches the terminal of the operator to the serial
+console of the guest, and it returns the exit code of L<telnet(1)>.
+
 =head1 THE IMAGE EXPORT
 
 C<fuguvm image export E<lt>pathE<gt> [--format=qcow2|raw]> writes the
@@ -77,10 +118,13 @@ invalid arguments, 3 configuration error, 7 timeout.
 
 Code 1 also reports an C<image export> whose target exists, whose
 parent directory is absent, or whose guest has no installed disk, and
-an import whose C<base_disk> file is absent at a cache miss.
+an import whose C<base_disk> file is absent at a cache miss. The four
+connection verbs give it for a guest that does not run, and C<put>
+and C<get> give it for a failed transfer.
 
-Code 2 also reports an unknown C<status> key, and an C<image> call
-with no action, no path, or an unknown C<--format> value.
+Code 2 also reports an unknown C<status> key, an C<image> call
+with no action, no path, or an unknown C<--format> value, and each
+argument refusal of C<put> and C<get> that the section above lists.
 
 Code 3 also reports an C<arch> value that is neither C<amd64> nor
 C<arm64>, and a QEMU binary of the architecture that is not on

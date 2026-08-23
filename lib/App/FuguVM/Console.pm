@@ -117,6 +117,71 @@ sub run_autoinstall ( $self, $config )
 		$config->{arch} );
 }
 
+# $self->attach:
+#	Attach the terminal of the caller to this console, with
+#	telnet(1). The method returns the exit code of telnet(1).
+#
+#	The guest never closes the console, so no end of file ends the
+#	attachment. The operator ends it with the telnet escape key,
+#	Ctrl-], and then 'quit'. telnet(1) leaves the terminal raw
+#	when a signal kills it, so the method saves the terminal
+#	attributes first and restores them on every exit path. The
+#	restore is idempotent. A signal that kills the tool also ends
+#	telnet(1), so no raw orphan keeps the terminal.
+sub attach ($self)
+{
+	# POSIX loads lazily, as App::FuguVM::Guest already does it.
+	require POSIX;
+
+	my $saved;
+	if ( POSIX::isatty(*STDIN) ) {
+		$saved = POSIX::Termios->new;
+		$saved->getattr( fileno(STDIN) );
+	}
+	my $restore = sub {
+		$saved->setattr( fileno(STDIN), POSIX::TCSANOW() )
+		    if defined $saved;
+	};
+
+	# A fork and an exec, not Fugu::Process->run: the child must
+	# keep the terminal of the caller, and the parent must know
+	# the child process ID, so a signal handler can end the child.
+	my $pid = fork;
+	if ( !defined $pid ) {
+		Fugu::Log->default->error( 'Cannot fork: %s', $! );
+		return 1;
+	}
+	if ( $pid == 0 ) {
+		exec( 'telnet', $self->{host}, $self->{port} );
+
+		# The exec failed. Exit like an absent command.
+		POSIX::_exit(1);
+	}
+
+	# The handler ends the child, restores the terminal, resets
+	# itself, and raises the same signal again. Thus one kill of
+	# the tool ends the whole session, and the exit status of the
+	# tool stays honest.
+	local @SIG{qw(INT TERM HUP)};
+	for my $name (qw(INT TERM HUP)) {
+		$SIG{$name} = sub ($signal) {
+			kill $signal, $pid;
+			$restore->();
+			$SIG{$signal} = 'DEFAULT';
+			kill $signal, $$;
+		};
+	}
+
+	my $reaped = waitpid( $pid, 0 );
+	my $status = $reaped == $pid ? $? : -1;
+
+	$restore->();
+
+	# Fugu::Process->exit_code maps a failure to 1, and a signal
+	# death to 128 plus the signal number.
+	return Fugu::Process->exit_code($status);
+}
+
 # $self->_expect($script, @args):
 #	Run expect(1) on the script, with the host and the port first.
 #	The scripts read their timeout from FUGUVM_TIMEOUT in the

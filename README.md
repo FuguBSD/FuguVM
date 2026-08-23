@@ -20,7 +20,7 @@ design.
 ```sh
 make deps
 bin/fuguvm up && bin/fuguvm wait
-bin/fuguvm ssh 'uname -a'
+bin/fuguvm ssh -- uname -a
 bin/fuguvm down
 ```
 
@@ -69,7 +69,7 @@ tarball to GitHub Releases and to PAUSE. The rules are in
 ## Commit scopes
 
 `cli`, `config`, `console`, `disk`, `guest`, `miniroot`, `proxy`, `qmp`,
-`state`, `spec`, `deps`, `ci`.
+`remote`, `state`, `spec`, `deps`, `ci`.
 
 ## License
 

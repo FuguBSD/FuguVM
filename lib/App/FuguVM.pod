@@ -6,7 +6,7 @@ App::FuguVM - install and manage OpenBSD virtual machines under QEMU
 
     fuguvm up
     fuguvm wait --timeout 120
-    fuguvm ssh uname -a
+    fuguvm ssh -- uname -a
     fuguvm down
 
 =head1 DESCRIPTION
@@ -65,6 +65,10 @@ The OpenBSD mirror policy over C<Fugu::Proxy>.
 =item L<App::FuguVM::QMP>
 
 The QEMU Machine Protocol command set.
+
+=item L<App::FuguVM::Remote>
+
+The remote side of one running guest: run, put, and get.
 
 =item L<App::FuguVM::State>
 

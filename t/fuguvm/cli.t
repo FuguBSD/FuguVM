@@ -279,8 +279,16 @@ SKIP: {
     print $fh "}\n";
     close $fh;
 
-    for my $command (['ssh', 'true'], ['console'], ['expect', 'x.exp'],
-	['wait']) {
+    # ssh and console check the running state first, so their
+    # diagnostic names the guest, not the port
+    for my $command (['ssh', 'true'], ['console']) {
+	my ($code, $out, $err) = _run_captured("--project=$project",
+	    '--vm', 'fleet', @$command);
+	is($code, 1, "@$command fails on a stopped auto guest");
+	like($err, qr/VM 'fleet' does not run/,
+	    'and the diagnostic names the stopped guest');
+    }
+    for my $command (['expect', 'x.exp'], ['wait']) {
 	my ($code, $out, $err) = _run_captured("--project=$project",
 	    '--vm', 'fleet', @$command);
 	is($code, 1, "@$command fails on a stopped auto guest");
@@ -310,6 +318,124 @@ SKIP: {
     is($code, 0, 'disk info succeeds');
     isnt($out, '', 'disk info writes to standard output');
     like($out, qr/^virtual-size: /m, 'as key: value lines');
+}
+
+# ============================================================
+# The file transfer and the argument vector
+# ============================================================
+
+# The command table declares the two verbs, so the help names them
+{
+    my ($code, $out) = _run_captured('help');
+    is($code, 0, 'help succeeds');
+    like($out, qr/^\s*put\b/m, 'the help names put');
+    like($out, qr/^\s*get\b/m, 'the help names get');
+}
+
+# The argument refusals of put, each with exit code 2
+{
+    my $project = _cache_project();
+    open my $fh, '>', "$project/payload" or die $!;
+    print $fh "payload\n";
+    close $fh;
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'put', "$project/payload"),
+	2, 'put with one argument exits 2');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'put', "$project/payload", 'relative/dst'),
+	2, 'put with a relative <remote> exits 2');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'put', "$project/absent", '/root/dst'),
+	2, 'put with a <local> that does not exist exits 2');
+
+    my ($code, $out, $err) = _run_captured("--project=$project",
+	'put', '--mode=8888', "$project/payload", '/root/dst');
+    is($code, 2, 'put --mode=8888 exits 2');
+    like($err, qr/octal digits/, 'and the diagnostic states the rule');
+
+    # A valid mode passes the validation. The guest does not run,
+    # so the verb then fails with 1, past the argument checks.
+    for my $mode (qw(0755 755)) {
+	($code, $out, $err) = _run_captured("--project=$project",
+	    'put', "--mode=$mode", "$project/payload", '/root/dst');
+	is($code, 1, "put --mode=$mode passes the validation");
+	like($err, qr/does not run/, 'and stops at the running check');
+    }
+}
+
+# The argument refusals of get, each with exit code 2
+{
+    my $project = _cache_project();
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'get', '/root/a', "$project/a", 'extra'),
+	2, 'get with three arguments exits 2');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'get', 'relative/a', "$project/a"),
+	2, 'get with a relative <remote> exits 2');
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'get', '/root/a', $project),
+	2, 'get with an existing directory as <local> exits 2');
+}
+
+# The four verbs share the VM checks: exit 4 for a VM that the
+# configuration does not declare, and exit 1 for a declared VM that
+# does not run, with the VM name in the message
+{
+    my $project = _cache_project();
+    open my $fh, '>', "$project/payload" or die $!;
+    print $fh "payload\n";
+    close $fh;
+
+    my @verbs = (
+	['ssh', '--', 'true'],
+	['put', "$project/payload", '/root/dst'],
+	['get', '/root/a', "$project/out"],
+	['console'],
+    );
+
+    local $SIG{__WARN__} = sub {};
+    for my $verb (@verbs) {
+	is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+		'--vm', 'undeclared', @$verb),
+	    4, "$verb->[0] exits 4 for an undeclared VM");
+
+	my ($code, $out, $err) =
+	    _run_captured("--project=$project", @$verb);
+	is($code, 1, "$verb->[0] exits 1 for a stopped VM");
+	like($err, qr/VM 'default' does not run/,
+	    'and the message names the VM');
+    }
+}
+
+# The parser rule: a bare hyphen word is an option of the tool, and
+# the -- separator carries the vector through unchanged
+{
+    my $project = _cache_project();
+
+    local $SIG{__WARN__} = sub {};
+    is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+	    'ssh', 'uname', '-m'),
+	2, 'a bare fuguvm ssh uname -m exits 2');
+
+    my @seen;
+    {
+	no warnings 'redefine';
+	local *App::FuguVM::CLI::cmd_ssh = sub ($self, $cli, @args) {
+	    @seen = @args;
+	    return 0;
+	};
+	is(App::FuguVM::CLI->run("--project=$project", '--quiet',
+		'ssh', '--', 'uname', '-m'),
+	    0, 'fuguvm ssh -- uname -m dispatches');
+    }
+    is_deeply(\@seen, ['uname', '-m'],
+	'and the two words reach the command body');
+
+    is(App::FuguVM::CLI->run('ssh', '--help'), 0, 'ssh --help exits 0');
 }
 
 # ============================================================

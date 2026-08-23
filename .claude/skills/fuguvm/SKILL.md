@@ -28,8 +28,8 @@ troubleshooting. A project defines its VMs in a `.fuguvmrc` at its root.
 2. Run ad-hoc commands in the VM:
 
    ```sh
-   bin/fuguvm ssh 'uname -a'
-   bin/fuguvm ssh 'tail -f /var/log/daemon'
+   bin/fuguvm ssh -- uname -a
+   bin/fuguvm ssh -- sh -c 'dmesg | tail -20'
    ```
 
 3. For scripted console interaction (no SSH yet), run an expect script:
