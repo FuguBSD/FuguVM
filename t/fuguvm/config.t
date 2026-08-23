@@ -239,6 +239,168 @@ is(App::FuguVM::Config::DEFAULT_VERSION(), '7.8', 'DEFAULT_VERSION is 7.8');
 	'and it says so instead of meaning the opposite');
 }
 
+# The distfile_cache directive: the size grammar, the default, the
+# refusal, and the merge
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    my $write = sub ($body) {
+	open my $fh, '>', "$tmpdir/.fuguvmrc" or die $!;
+	print $fh $body;
+	close $fh;
+	return App::FuguVM::Config->new($tmpdir);
+    };
+
+    my %sizes = (
+	'4G'   => 4 * 1024**3,
+	'512M' => 512 * 1024**2,
+	'64K'  => 64 * 1024,
+	'1024' => 1024,
+	'2g'   => 2 * 1024**3,
+	'8m'   => 8 * 1024**2,
+    );
+    for my $value (sort keys %sizes) {
+	is($write->("distfile_cache $value\n")->distfile_cache,
+	    $sizes{$value}, "distfile_cache parses $value");
+    }
+
+    is($write->("distfile_cache 0\n")->distfile_cache, 0,
+	'distfile_cache 0 is off');
+    is($write->("cache_dir /tmp\n")->distfile_cache, 0,
+	'an absent directive is off');
+
+    # An unparsable value warns and reads as off: an unrecognized
+    # spelling must not silently mean its opposite, and off is the
+    # closed state for a cache.
+    my $diagnostic = '';
+    my $result;
+    {
+	local *STDERR;
+	open STDERR, '>', \$diagnostic or die "capture stderr: $!";
+	$result = $write->("distfile_cache lots\n")->distfile_cache;
+    }
+    is($result, 0, 'an unparsable distfile_cache is off');
+    like($diagnostic, qr/lots/, 'and the warning names the value');
+
+    # The project file wins over the global file, for each of the
+    # three directives of the mirror work
+    open my $gh, '>', "$homedir/.fuguvmrc" or die $!;
+    print $gh "distfile_cache 1K\n";
+    print $gh "verify yes\n";
+    print $gh "signify_dir /global/keys\n";
+    close $gh;
+
+    my $config = $write->("distfile_cache 2K\n"
+	. "verify no\n"
+	. "signify_dir /project/keys\n");
+    is($config->distfile_cache, 2048,
+	'the project distfile_cache wins over the global one');
+    is($config->verify, 0, 'the project verify wins over the global one');
+    is($config->signify_dir, '/project/keys',
+	'the project signify_dir wins over the global one');
+
+    # The global file serves without a project value
+    $config = $write->("cache_dir /tmp\n");
+    is($config->distfile_cache, 1024, 'the global distfile_cache serves');
+    is($config->verify, 1, 'the global verify serves');
+    is($config->signify_dir, '/global/keys', 'the global signify_dir serves');
+}
+
+# The verify directive: the default is on, and it reads the yes/no
+# spellings like image_cache
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms");
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm test {\n}\n";
+    close $fh;
+    my $config = App::FuguVM::Config->new($tmpdir);
+    is($config->verify, 1, 'verify defaults to 1');
+    is($config->load_vm('test')->{verify}, 1,
+	'and the default reaches the VM hash');
+
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "verify no\n";
+    print $fh "vm test {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->verify, 0, 'verify no reads as 0');
+    is($config->load_vm('test')->{verify}, 0, 'and reaches the VM hash');
+}
+
+# The signify_dir directive: the tilde, the project-relative path,
+# the VM hash, and the refusal of a value that is not a directory
+{
+    my $tmpdir = tempdir(CLEANUP => 1);
+    my $homedir = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $homedir;
+    make_path("$tmpdir/.fuguvm/vms", "$tmpdir/keys", "$homedir/keys");
+
+    open my $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "signify_dir ~/keys\n";
+    print $fh "vm test {\n}\n";
+    close $fh;
+    my $config = App::FuguVM::Config->new($tmpdir);
+    is($config->signify_dir, "$homedir/keys", 'signify_dir expands a tilde');
+    is($config->load_vm('test')->{signify_dir}, "$homedir/keys",
+	'and load_vm carries it into the VM hash');
+
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "signify_dir keys\n";
+    print $fh "vm test {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    like($config->signify_dir, qr{\Q/keys\E$},
+	'a relative path resolves against the project root');
+    like($config->signify_dir, qr{^/}, 'and the result is absolute');
+
+    # A value that is not a directory is a refusal at the boundary
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "vm test {\n";
+    print $fh "    signify_dir absent-keys\n";
+    print $fh "}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('test'), undef,
+	'an absent signify_dir makes load_vm return undef');
+    like($config->error, qr/absent-keys/, 'and error names the path');
+
+    # The distfile cap is a project fact, and load_vm injects it
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "distfile_cache 4G\n";
+    print $fh "vm test {\n}\n";
+    close $fh;
+    $config = App::FuguVM::Config->new($tmpdir);
+    is($config->load_vm('test')->{distfile_cache}, 4 * 1024**3,
+	'load_vm injects the distfile cap of the project');
+
+    # A cap in a VM block does not apply, and the operator hears
+    # about it
+    open $fh, '>', "$tmpdir/.fuguvmrc";
+    print $fh "distfile_cache 4G\n";
+    print $fh "vm test {\n";
+    print $fh "    distfile_cache 8G\n";
+    print $fh "}\n";
+    close $fh;
+    my $warning = '';
+    my $loaded;
+    {
+	local *STDERR;
+	open STDERR, '>', \$warning or die "capture stderr: $!";
+	$loaded = App::FuguVM::Config->new($tmpdir)->load_vm('test');
+    }
+    is($loaded->{distfile_cache}, 4 * 1024**3,
+	'the project cap wins over a cap in a VM block');
+    like($warning, qr/distfile_cache/,
+	'and the loader warns about the block value');
+}
+
 # The parser normalizes image_cache inside a vm block like the global
 # directive
 {

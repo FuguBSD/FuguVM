@@ -5,6 +5,7 @@ runtime pkg qemu-efi-aarch64
 runtime pkg ovmf
 runtime pkg expect
 runtime pkg telnet
+runtime pkg signify-openbsd
 runtime pkg libssh2-1-dev
 runtime cpan Net::SSH2
 runtime cpan HTTP::Daemon

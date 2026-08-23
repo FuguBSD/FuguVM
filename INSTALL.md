@@ -15,8 +15,8 @@ doas make install
 
 `make deps` installs the latest
 [Fugu release](https://github.com/FuguBSD/Fugu/releases/latest), the QEMU
-packages, `expect`, `telnet`, and the SSH and HTTP modules. `make install`
-copies `bin/fuguvm`, the modules, the manual, and the share tree.
+packages, `expect`, `telnet`, `signify`, and the SSH and HTTP modules.
+`make install` copies `bin/fuguvm`, the modules, the manual, and the share tree.
 `make uninstall` removes them.
 
 ## From a release tarball
@@ -32,7 +32,9 @@ cpanm --notest https://github.com/FuguBSD/FuguVM/releases/latest/download/App-Fu
 
 The cpanm flow installs the modules, the binary, and the share tree. The mdoc(7)
 manual ships in the tarball but installs through the make flow. The QEMU,
-expect, and telnet packages come from the OS package manager either way.
+expect, telnet, and signify packages come from the OS package manager either
+way. The signify package is `signify-openbsd` on Linux and `signify-osx` on
+Darwin; OpenBSD base holds signify(1).
 
 ## Set up a project
 

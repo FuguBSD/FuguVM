@@ -39,11 +39,22 @@ lifecycle, the hosts, and the target design of the open work.
 
 ## The mirror proxy
 
-The mirror proxy caches the OpenBSD sets that an install fetches.
+The mirror proxy caches the OpenBSD content that an install and a ports build
+fetch: the file sets, the packages, the source tarballs of a release, and the
+distfile tree. A size cap that the operator sets bounds the distfile tree, and
+the cap is off by default. The version prune bounds every other tree. The
+`fuguvm mirror` command fetches and verifies one file, and it verifies the
+cache. The host verifies each file that the tool itself downloads. The guest
+verifies its own fetches through the proxy: the installer verifies the sets,
+`pkg_add` verifies a package, `syspatch` verifies a patch set, and the ports
+tree verifies a distfile against `distinfo`.
 
 - **GST-MIRROR-1** — A mirror fetch must verify the `SHA256` manifest of the
   release under its release key, through Fugu LIB-SIGNIFY.
 - **GST-MIRROR-2** — A verification failure must leave no file in the cache.
+- **GST-MIRROR-3** — A `verify no` directive must turn the host proof off and
+  must make the installer waive its own check, each with one warning. The
+  default must stay `verify yes`.
 
 <a id="gst-arch"></a>
 

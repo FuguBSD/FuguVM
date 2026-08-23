@@ -15,6 +15,7 @@ App::FuguVM::Console - drive the serial console of a guest
         root_password => $password,
         proxy_url     => $proxy->guest_url,
         arch          => 'arm64',
+        verify        => 'yes',
     }) or die "installation failed\n";
 
     $console->run_script('reboot.exp');
@@ -74,9 +75,18 @@ C<run_install> does.
     $console->run_install(\%config)
 
 Drive a complete installation. The configuration gives the root
-password, the proxy URL that the guest fetches its sets through, and
-the architecture. The method passes them to F<install.exp> in that
-order, after the host and the port.
+password, the proxy URL that the guest fetches its sets through, the
+architecture, and the verify word (C<yes> or C<no>, default C<yes>).
+The method passes them to F<install.exp> in that order, after the
+host and the port. The script reads its arguments by position, so the
+tool and the script land in one commit.
+
+With C<verify> set to C<yes>, the script does not answer the
+"Continue without verification?" prompt of the installer: the
+installer of a numbered release verifies each set by itself, so the
+prompt reports a broken mirror, and the script exits 1. With C<no>,
+the script answers yes and writes a warning that the guest installs
+unverified sets.
 
 =head2 run_autoinstall
 

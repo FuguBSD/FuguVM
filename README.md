@@ -33,8 +33,8 @@ the optional features use. See [INSTALL.md](INSTALL.md) for full instructions.
 - `lib/App/FuguVM/` — the modules, one concern each, every one with a `.pod`
   sidecar
 - `man/fuguvm/fuguvm.1` — the mdoc(7) reference for the tool
-- `share/fuguvm/` — the expect scripts, the cache-generation file, and the
-  configuration samples
+- `share/fuguvm/` — the expect scripts, the cache-generation file, the signify
+  keys of the supported releases, and the configuration samples
 - `spec/` — the specification; `t/fuguvm/`, `t/scripts/`, `t/ci/` — the test
   tiers
 - `deps/` — per-OS dependency manifests, installed by `make deps`; `scripts/` —
@@ -68,8 +68,8 @@ tarball to GitHub Releases and to PAUSE. The rules are in
 
 ## Commit scopes
 
-`cli`, `config`, `console`, `disk`, `guest`, `miniroot`, `proxy`, `qmp`,
-`remote`, `state`, `spec`, `deps`, `ci`.
+`cli`, `config`, `console`, `disk`, `guest`, `miniroot`, `mirror`, `proxy`,
+`qmp`, `remote`, `state`, `spec`, `deps`, `ci`.
 
 ## License
 

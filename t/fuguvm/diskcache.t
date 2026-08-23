@@ -75,6 +75,13 @@ my %CONFIG = (
 
 	my %older = ( %CONFIG, version => '7.7' );
 	isnt( $cache->key( \%older ), $key, 'version rotates the key' );
+
+	# The verify switch shapes the install: the installer reads it,
+	# and the miniroot of the run was fetched under it.
+	my %unproven = ( %CONFIG, verify => 0 );
+	isnt( $cache->key( \%unproven ), $key, 'verify rotates the key' );
+	is( $cache->key( { %CONFIG, verify => 1 } ),
+		$key, 'and an explicit verify yes reads as the default' );
 }
 
 # The record of each install mode. A configuration without an
@@ -126,6 +133,11 @@ my %CONFIG = (
 	my %older = ( %import, version => '7.7' );
 	isnt( $cache->key( \%older ), $import_key,
 		'the version rotates the import key' );
+
+	my %unproven = ( %import, verify => 0 );
+	is( $cache->key( \%unproven ),
+		$import_key,
+		'verify does not shape an imported entry: no install ran' );
 }
 
 # The architecture comes from the VM configuration, and it separates

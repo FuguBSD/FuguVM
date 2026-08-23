@@ -66,7 +66,17 @@ In the second case, C<error> reports the reason.
 
 The method applies the defaults for C<arch>, C<version>, C<memory>,
 C<disk_size>, C<ssh_port> and C<console_port>, and folds in
-C<ssh_pubkey> and C<cache_dir> from the enclosing configuration.
+C<ssh_pubkey>, C<cache_dir>, C<verify>, C<signify_dir> and
+C<distfile_cache> from the enclosing configuration.
+
+C<verify> arrives normalized to 1 or 0, like C<image_cache>.
+C<signify_dir> arrives resolved, and a value that is not a directory
+makes C<load_vm> return C<undef> with the reason in C<error>.
+C<distfile_cache> arrives as the byte count of the project setting;
+the distfile tree is one tree under C<cache_dir> and each guest of a
+project shares it, so a per-guest cap would have no meaning. A
+C<distfile_cache> line in a C<vm> block does not apply, and the
+loader gives one warning for it.
 
 C<arch> selects the guest architecture: C<amd64> or C<arm64>. The
 default is C<arm64>. The comparison is case sensitive, so C<AMD64> is
@@ -148,6 +158,28 @@ The top-level settings. C<cache_dir> expands a leading tilde;
 C<state_dir> resolves a relative path against the project root.
 C<bind_address> returns the setting of the enclosing files, or
 C<127.0.0.1>. C<qemu_version> returns the setting, or C<undef>.
+
+=head2 verify
+
+Return 1 or 0. The directive switches the mirror verification of
+L<App::FuguVM::Mirror>, and the default is 1. A value that is neither
+yes nor no gives a warning and the default, like C<image_cache>.
+
+=head2 signify_dir
+
+Return the resolved directory of the signify public keys, or C<undef>
+without the directive. The value expands a leading tilde, and a
+relative path resolves against the project root.
+
+=head2 distfile_cache
+
+Return the distfile cap in bytes. The value of the directive is a
+size: a bare number of bytes, or a number with a C<K>, C<M> or C<G>
+suffix. The suffix is 1024-based, and the letter case does not
+matter. The default is 0, and 0 turns the distfile cache off. An
+unparsable value gives one warning and the value 0: an unrecognized
+spelling must not silently mean its opposite, and off is the closed
+state for a cache.
 
 =head2 declared_ports
 

@@ -36,9 +36,10 @@ value means "not now". A line with an empty value ends with the
 colon and one space, so every line has one shape.
 
 The keys are C<accel>, C<arch>, C<bind_address>, C<console_port>,
-C<disk_exists>, C<installed>, C<name>, C<pid>, C<ssh_port> and
-C<state>. C<pid> and the two ports of an C<auto> directive are empty
-for a stopped guest.
+C<disk_exists>, C<installed>, C<name>, C<pid>, C<proxy_url>,
+C<ssh_port> and C<state>. C<pid> and the two ports of an C<auto>
+directive are empty for a stopped guest, and C<proxy_url> is empty
+while the proxy does not run.
 
 C<fuguvm status E<lt>keyE<gt>> writes the bare value of one key,
 with no key name and no colon. Thus a make target reads one port
@@ -89,6 +90,41 @@ gives exit code 1.
 C<fuguvm console> attaches the terminal of the operator to the serial
 console of the guest, and it returns the exit code of L<telnet(1)>.
 
+=head1 THE MIRROR COMMAND
+
+C<fuguvm mirror fetch E<lt>fileE<gt>> downloads one file of the
+release of the invoked guest, verifies it through
+L<App::FuguVM::Mirror>, stores it in the proxy cache, and writes the
+cached path to standard output, where a script can read it. The
+scope comes from the manifests: the tool uses the release scope when
+the manifest of the architecture directory names the file, and the
+source scope when the manifest of the version directory does. Both
+manifests are authoritative lists, so the tool guesses nothing, and
+it refuses a name that neither manifest holds with exit code 1.
+
+C<fuguvm mirror fetch ports.tar.gz> is the call that a consumer
+makes. The guest then reads a verified ports tree from the cache,
+over http, through the proxy.
+
+C<fuguvm mirror verify> verifies every cached file of the version and
+the architecture of the invoked guest. It logs one
+C<scope/name> line for each file that failed, and one summary line
+with the three counts. It removes each file that failed, in its own
+scope only, because a file that fails a digest must not stay in a
+cache that a later run reads. A cached manifest pair that fails its
+own proof counts as failed too, and the removal covers it. The verb
+does not remove an C<unknown> file: a name that no manifest holds is
+not a failure, and F<index.txt> is such a name on every mirror. The
+verb exits 1 when one file failed, and 0 otherwise. It is idempotent:
+a second run over a clean cache removes nothing and exits 0. The verb
+always proves, whatever the C<verify> directive says.
+
+C<mirror> with no action, with an unknown action, C<mirror fetch>
+with no file, and C<mirror verify> with an argument, each exit 2. An
+absent public key for the version, and a C<signify_dir> that is not
+a directory, each exit 3. A failed download, a failed signature, and
+a failed digest each exit 1.
+
 =head1 THE IMAGE EXPORT
 
 C<fuguvm image export E<lt>pathE<gt> [--format=qcow2|raw]> writes the
@@ -120,25 +156,38 @@ Code 1 also reports an C<image export> whose target exists, whose
 parent directory is absent, or whose guest has no installed disk, and
 an import whose C<base_disk> file is absent at a cache miss. The four
 connection verbs give it for a guest that does not run, and C<put>
-and C<get> give it for a failed transfer.
+and C<get> give it for a failed transfer. A failed download, a failed
+signature, a failed digest, a C<mirror verify> that found one bad
+file, and C<verify yes> with no signify(1) on the host, each give it
+too.
 
 Code 2 also reports an unknown C<status> key, an C<image> call
-with no action, no path, or an unknown C<--format> value, and each
-argument refusal of C<put> and C<get> that the section above lists.
+with no action, no path, or an unknown C<--format> value, a
+C<mirror> call with no action, an unknown action, or no file, and
+each argument refusal of C<put> and C<get> that the section above
+lists.
 
 Code 3 also reports an C<arch> value that is neither C<amd64> nor
 C<arm64>, and a QEMU binary of the architecture that is not on
 C<PATH>. An invalid C<bind_address>, C<ssh_port>, C<console_port> or
 C<qemu_version> value gives the same code. So does a QEMU version
-that does not match the pinned C<qemu_version>, and each refusal of
-the image-lifecycle directives that L<App::FuguVM::Config> lists.
+that does not match the pinned C<qemu_version>, a C<signify_dir>
+that is not a directory, an absent public key for the version on a
+C<mirror> call, and each refusal of the image-lifecycle directives
+that L<App::FuguVM::Config> lists. An absent key on C<up> reads as a
+failed image, with code 1.
 
 These are the codes that mean something to a VM:
 
     4   the named VM is not in the configuration
     5   the VM runs and the command needs it stopped
-    9   an expect script failed, the autoinstall script included
+    9   an expect script failed, the install and autoinstall
+        scripts included
     11  the named snapshot does not exist
+
+Code 9 also reports the installer prompt "Continue without
+verification?" under C<verify yes>: the script stops on it, because
+the prompt means that the mirror data is wrong.
 
 Code 11 is scriptable: a script that runs C<snapshot restore ||
 provision-from-scratch> can tell a missing layer from a real failure.

@@ -122,6 +122,13 @@ sub key ( $self, $vm_config )
 	    if $mode ne 'import';
 	push @inputs, "install_mode=$mode";
 
+	# The verify switch shapes an installed disk: the installer of
+	# the expect mode reads it, and every install boots a miniroot
+	# that the host fetched under it. An import runs no install, so
+	# the switch does not shape an imported entry.
+	push @inputs, 'verify=' . ( ( $vm_config->{verify} // 1 ) ? 1 : 0 )
+	    if $mode ne 'import';
+
 	if ( $mode ne 'import' ) {
 		my $script =
 		    $mode eq 'autoinstall'
