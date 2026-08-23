@@ -30,3 +30,6 @@ external/
 *.iso
 *.pid
 *.log
+
+# Website build
+web/build/
