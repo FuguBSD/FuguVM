@@ -136,7 +136,7 @@ jobs:
 
       - name: Check the guest architecture
         run: |
-          machine="$(bin/fuguvm ssh 'uname -m')"
+          machine="$(bin/fuguvm ssh -- uname -m)"
           echo "uname -m: $machine"
           test "$machine" = "${{ matrix.arch }}"
 

@@ -48,5 +48,5 @@ fuguvm up && fuguvm wait
 
 ```sh
 fuguvm status
-fuguvm ssh 'uname -a'
+fuguvm ssh -- uname -a
 ```

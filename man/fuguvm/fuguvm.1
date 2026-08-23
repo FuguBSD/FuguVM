@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 22 2026 $
+.Dd $Mdocdate: August 23 2026 $
 .Dt FUGUVM 1
 .Os
 .Sh NAME
@@ -257,22 +257,116 @@ and the diagnostic names every valid key.
 follows the same
 .Ar key : value
 contract on standard output.
-.It Cm ssh Op Ar command
+.It Cm ssh Oo Fl Fl Oc Op Ar command Op Ar argument ...
 Open an interactive SSH session to the VM as root,
-or run
-.Ar command
-and exit with its exit code.
+or run one remote command and exit with its exit code.
 Authentication uses the SSH agent.
+.Pp
+With arguments,
+each argument is one word of the argument vector.
+The tool quotes every word.
+Thus the remote shell performs no splitting,
+no expansion,
+and no globbing,
+and the words arrive exactly as you wrote them.
+Write
+.Fl Fl
+before any word that starts with a hyphen:
+the option parser reads such a word as an option of the tool,
+and it exits with code 2.
+A caller that wants a remote shell asks for one:
+.Bd -literal -offset indent
+$ fuguvm ssh -- sh -c 'cd /src && make regress'
+.Ed
+.Pp
+The remote command gets no terminal and no standard input,
+and its output arrives when the command ends.
+The interactive form keeps the standard input of the caller.
+.It Cm put Oo Fl Fl mode Ns = Ns Ar octal Oc Ar local remote
+Copy the local file or directory
+.Ar local
+into the running guest,
+at the absolute path
+.Ar remote .
+.Ar remote
+is never a container:
+.Ql put src /root
+writes the content of
+.Pa src
+into
+.Pa /root ,
+and it adds no
+.Pa src
+component.
+The bytes move over the SFTP channel.
+.Pp
+The tool writes each file to a temporary name beside its destination,
+and then publishes every file with
+.Xr mv 1 .
+A failure removes every temporary file.
+Thus a failed run leaves no partial destination file.
+A directory copy is not atomic as a whole:
+a failure can leave files that an earlier batch published.
+.Pp
+.Fl Fl mode
+sets the mode of each written file,
+as 3 or 4 octal digits.
+Without the option,
+each file keeps its local permission bits,
+masked with 0777,
+so no setuid bit and no setgid bit arrives.
+The option does not apply to a directory:
+.Ql mkdir -p
+gives each directory the mode that the remote umask allows.
+.Pp
+The tool refuses a source with a symbolic link,
+a device node,
+a socket,
+or a fifo,
+and a file above 64 MiB,
+before it writes one byte.
+.It Cm get Ar remote local
+Copy one regular guest file at the absolute path
+.Ar remote
+to the host file
+.Ar local .
+The tool reads the whole file first,
+and then writes
+.Ar local
+atomically,
+mode 0644.
+Thus a failure leaves no partial local file.
+One call copies one file:
+the tool lists no remote directory.
+.Ar local
+must not be an existing directory.
+The command needs a Fugu release with
+.Ql Fugu::SSH->read_file ;
+with an older release it names the needed release and exits with
+code 1.
 .It Cm console
-Show how to connect to the VM serial console
-.Pq with Xr telnet 1 .
-The advice names the connect address of the guest:
+Attach the terminal of the operator to the VM serial console,
+with
+.Xr telnet 1 ,
+at the connect address of the guest:
 the
 .Ar bind_address ,
 or
 .Li 127.0.0.1
 when the ports bind to
 .Li 0.0.0.0 .
+The guest never closes the console.
+End the session with the telnet escape key,
+.Ql Ctrl-\&] ,
+and then
+.Ic quit .
+The tool restores the terminal on every exit path.
+.Pp
+The console takes one client.
+An installation and
+.Cm expect
+each hold the same port,
+so do not attach while one runs.
 .It Cm expect Ar script Op Ar argument ...
 Run an
 .Xr expect 1
@@ -616,12 +710,20 @@ and a later
 .Cm start
 resolves again.
 An exhausted range causes an exit with code 1.
-A connection command
-.Pq Cm ssh , console , expect , wait
+.Cm expect
+and
+.Cm wait
 against a stopped guest with a directive of
 .Cm auto
-also fails with exit code 1,
+also fail with exit code 1,
 because such a guest has no port.
+.Cm ssh ,
+.Cm put ,
+.Cm get
+and
+.Cm console
+refuse every stopped guest first,
+with the same code.
 .Pp
 .Ar bind_address
 names the host address of every forwarded port,
@@ -797,7 +899,26 @@ The
 .Cm ssh
 command with a
 .Ar command
-argument exits with the exit code of the remote command.
+argument exits with the exit code of the remote command,
+once it connects.
+A remote exit code can read like a tool code:
+a remote command that exits with 4 looks like
+.Dq VM not found .
+The diagnostic on standard error tells the two apart,
+because the tool logs each failure of its own.
+The four connection verbs
+.Pq Cm ssh , put , get , console
+exit with 1 for a guest that does not run,
+and
+.Cm put
+and
+.Cm get
+exit with 1 for a failed transfer.
+They exit with 2 for a bad argument count,
+a relative remote path,
+or a bad
+.Fl Fl mode
+value.
 .Sh EXAMPLES
 Initialize a project and boot the default VM:
 .Bd -literal -offset indent
@@ -808,8 +929,17 @@ $ fuguvm wait --timeout=300
 .Pp
 Run a command in the VM:
 .Bd -literal -offset indent
-$ fuguvm ssh "uname -a"
+$ fuguvm ssh -- uname -a
 OpenBSD openbsd-default.my.domain 7.8 GENERIC arm64
+.Ed
+.Pp
+Copy a source tree in,
+run a build step,
+and copy the report back out:
+.Bd -literal -offset indent
+$ fuguvm put src /root/src
+$ fuguvm ssh -- sh -c 'cd /root/src && make regress > report.txt'
+$ fuguvm get /root/src/report.txt report.txt
 .Ed
 .Pp
 Operate on a VM other than the default:
@@ -831,7 +961,7 @@ vm "openbsd-amd64" {
 }
 
 $ fuguvm --vm openbsd-amd64 up
-$ fuguvm --vm openbsd-amd64 ssh "uname -m"
+$ fuguvm --vm openbsd-amd64 ssh -- uname -m
 amd64
 .Ed
 .Pp
@@ -883,6 +1013,13 @@ the password stays after
 and it changes only when the base key changes.
 .Pp
 The guest permits password root login.
+.Cm put
+and
+.Cm get
+reach the guest as root,
+over the forwarded SSH port.
+The console port carries no authentication of its own,
+and the guest login prompt is the only gate.
 .Nm
 binds the forwarded SSH port and the telnet serial console to
 .Ar bind_address ,

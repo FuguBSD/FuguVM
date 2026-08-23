@@ -41,6 +41,25 @@ The host and port name the serial console. Each script reads its
 timeout from C<FUGUVM_TIMEOUT> in the environment and carries its own
 default.
 
+=head2 attach
+
+    $console->attach
+
+Attach the terminal of the caller to this console, with L<telnet(1)>.
+The method returns the exit code of telnet(1).
+
+The guest never closes the console, so no end of file ends the
+attachment. The operator ends it with the telnet escape key,
+C<Ctrl-]>, and then C<quit>. The method saves the terminal attributes
+of standard input first, and it restores them on every exit path, the
+signal path included, because telnet(1) leaves the terminal raw when
+a signal kills it. A signal that kills the tool also ends telnet(1),
+so no raw orphan keeps the terminal.
+
+The console takes one client. An installation and C<fuguvm expect>
+each hold the same port, so an operator must not attach while one
+runs.
+
 =head2 script_path
 
     App::FuguVM::Console->script_path($name)

@@ -24,12 +24,12 @@ use File::Spec ();
 use Fugu::CLI;
 use Fugu::File;
 use Fugu::Log;
-use Fugu::SSH;
 use App::FuguVM::Config;
 use App::FuguVM::Disk;
 use App::FuguVM::Console;
 use App::FuguVM::DiskCache;
 use App::FuguVM::Proxy;
+use App::FuguVM::Remote;
 use App::FuguVM::State;
 use App::FuguVM::Guest;
 
@@ -91,11 +91,22 @@ my %COMMANDS = (
 	},
 	ssh => {
 		summary => 'Open SSH session or run command',
-		usage   => '[command]',
+		usage   => '[--] [command [argument ...]]',
 		method  => 'cmd_ssh',
 	},
+	put => {
+		summary => 'Copy a local file or directory into the VM',
+		usage   => '[--mode=<octal>] <local> <remote>',
+		options => { 'mode=s' => 'the mode of each written file' },
+		method  => 'cmd_put',
+	},
+	get => {
+		summary => 'Copy one guest file to the host',
+		usage   => '<remote> <local>',
+		method  => 'cmd_get',
+	},
 	console => {
-		summary => 'Show console connection info',
+		summary => 'Attach to the VM serial console',
 		method  => 'cmd_console',
 	},
 	expect => {
@@ -217,7 +228,7 @@ sub run ( $class, @argv )
 Examples:
   fuguvm init
   fuguvm up
-  fuguvm ssh "uname -a"
+  fuguvm ssh -- uname -a
   fuguvm wait --timeout=300
   fuguvm --vm minimal up
 EOF
@@ -366,49 +377,161 @@ sub _require_port ( $self, $vm, $directive )
 	return;
 }
 
-# Open an SSH session into the VM, or run a command
-sub cmd_ssh ( $self, $cli, @args )
+# $self->_require_running($vm):
+#	Return 1 while the guest runs. Log one line and return 0
+#	otherwise, because a clear message beats a "Failed to connect"
+#	from libssh2.
+sub _require_running ( $self, $vm )
 {
-	my $vm = $self->_load_vm or return $self->{load_exit};
+	return 1 if $vm->is_running;
 
-	my $port = $self->_require_port( $vm, 'ssh_port' );
-	return EXIT_ERROR if !defined $port;
+	$self->{log}->error( "VM '$self->{vm_name}' does not run."
+		    . " Run 'fuguvm up' first." );
+	return 0;
+}
+
+# $self->_require_remote($vm, $directive):
+#	Return the App::FuguVM::Remote object of the guest, or undef.
+#	The guest must run, and the port of $directive must resolve.
+#	_require_running and _require_port each log the reason.
+sub _require_remote ( $self, $vm, $directive )
+{
+	return if !$self->_require_running($vm);
+
+	my $port = $self->_require_port( $vm, $directive );
+	return if !defined $port;
 
 	# The connection uses the SSH agent for authentication. Connect
 	# to the IPv4 address that the forwarded port binds to. A name
 	# such as 'localhost' resolves to ::1 first on a dual-stack
 	# host, and QEMU does not listen there.
-	my $ssh = Fugu::SSH->new(
+	return App::FuguVM::Remote->new(
 		host => $vm->connect_address,
 		port => $port,
-		user => 'root',
 	);
+}
+
+# Open an SSH session into the VM, or run one argument vector on it
+sub cmd_ssh ( $self, $cli, @args )
+{
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $remote = $self->_require_remote( $vm, 'ssh_port' );
+	return EXIT_ERROR if !defined $remote;
 
 	if (@args) {
-		my $result = $ssh->run_command( join( ' ', @args ) );
+		my $result = $remote->run(@args);
 		print $result->{stdout}        if $result->{stdout};
 		print STDERR $result->{stderr} if $result->{stderr};
 		return $result->{exit_code};
 	}
 	else {
-		return $ssh->interactive;
+		return $remote->interactive;
 	}
 }
 
-# Show the console connection info
+# Copy a local file or a local directory into the guest
+sub cmd_put ( $self, $cli, @args )
+{
+	my ( $local, $remote_path, @extra ) = @args;
+	if ( !defined $local || !defined $remote_path || @extra ) {
+		$self->{log}->error(
+			'Usage: fuguvm put [--mode=<octal>] <local> <remote>');
+		return EXIT_INVALID_ARGS;
+	}
+	if ( index( $remote_path, '/' ) != 0 ) {
+		$self->{log}
+		    ->error("The remote path is not absolute: $remote_path");
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $mode = $cli->option('mode');
+	if ( defined $mode && $mode !~ /^[0-7]{3,4}$/ ) {
+		$self->{log}->error(
+			"Invalid --mode value: $mode (3 or 4 octal digits)");
+		return EXIT_INVALID_ARGS;
+	}
+	if ( -l $local || ( !-f $local && !-d $local ) ) {
+		$self->{log}
+		    ->error("Not a regular file or a directory: $local");
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $remote = $self->_require_remote( $vm, 'ssh_port' );
+	return EXIT_ERROR if !defined $remote;
+
+	return EXIT_ERROR
+	    if !$remote->put( $local, $remote_path,
+		defined $mode ? ( mode => oct($mode) ) : () );
+
+	return EXIT_SUCCESS;
+}
+
+# Copy one guest file to the host
+sub cmd_get ( $self, $cli, @args )
+{
+	my ( $remote_path, $local, @extra ) = @args;
+	if ( !defined $remote_path || !defined $local || @extra ) {
+		$self->{log}->error('Usage: fuguvm get <remote> <local>');
+		return EXIT_INVALID_ARGS;
+	}
+	if ( index( $remote_path, '/' ) != 0 ) {
+		$self->{log}
+		    ->error("The remote path is not absolute: $remote_path");
+		return EXIT_INVALID_ARGS;
+	}
+	if ( -d $local ) {
+		$self->{log}
+		    ->error("The local destination is a directory: $local");
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	my $remote = $self->_require_remote( $vm, 'ssh_port' );
+	return EXIT_ERROR if !defined $remote;
+
+	# The installed Fugu can come from a release that has no
+	# read_file yet: the manifests fetch the unversioned latest
+	# asset. A missing method must read as a diagnosis, not as a
+	# stack trace.
+	if ( !Fugu::SSH->can('read_file') ) {
+		$self->{log}->error(
+			      'The installed Fugu has no Fugu::SSH->read_file.'
+			    . ' Install Fugu 0.2.0 or later.' );
+		return EXIT_ERROR;
+	}
+
+	return EXIT_ERROR if !$remote->get( $remote_path, $local );
+
+	return EXIT_SUCCESS;
+}
+
+# Attach the terminal of the operator to the serial console
 sub cmd_console ( $self, $cli, @args )
 {
 	my $vm = $self->_load_vm or return $self->{load_exit};
+
+	return EXIT_ERROR if !$self->_require_running($vm);
 
 	my $port = $self->_require_port( $vm, 'console_port' );
 	return EXIT_ERROR if !defined $port;
 
 	my $host = $vm->connect_address;
-	$self->{log}->info("Connect with: telnet $host $port");
-	$self->{log}->info("type: telnet");
-	$self->{log}->info("host: $host");
-	$self->{log}->info("port: $port");
-	return EXIT_SUCCESS;
+
+	# The line goes through the logger, so --quiet drops it and
+	# the attachment still happens.
+	$self->{log}
+	    ->info("Attaching to $host:$port. Leave with Ctrl-], then 'quit'.");
+
+	my $console = App::FuguVM::Console->new(
+		host => $host,
+		port => $port,
+	);
+
+	return $console->attach;
 }
 
 # Run an expect script
