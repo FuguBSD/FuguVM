@@ -1,0 +1,29 @@
+<h1>FuguVM</h1>
+
+<p>FuguVM installs and manages OpenBSD virtual machines under QEMU.
+<code>fuguvm</code> installs an OpenBSD guest without interaction,
+caches the installed disk, and drives the lifecycle: boot, wait, ssh,
+snapshot, and shutdown. A project describes its guests in one
+<code>.fuguvmrc</code> at its root. The tool exists so a test suite
+can run against a real OpenBSD guest, on a Linux or Darwin host and
+in CI.</p>
+
+<p>FuguVM uses Perl (v5.36) over the
+<a href="https://lib.fugubsd.org/">Fugu</a> library. It adds no
+direct CPAN dependency of its own.</p>
+
+<h2>Installation</h2>
+
+<p>Install the latest Fugu release first, then the FuguVM release:</p>
+
+<pre><code>cpanm --notest https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
+cpanm --notest https://github.com/FuguBSD/FuguVM/releases/latest/download/App-FuguVM.tar.gz</code></pre>
+
+<h2>Documentation</h2>
+
+<ul>
+<li>The <a href="manuals.html">manuals</a>: fuguvm(1) and every module</li>
+<li>The <a href="https://github.com/FuguBSD/FuguVM">source repository</a>
+and the <a href="https://github.com/FuguBSD/FuguVM/blob/main/spec/index.md">specification</a></li>
+<li>The <a href="https://github.com/FuguBSD/FuguVM/releases">releases</a></li>
+</ul>
