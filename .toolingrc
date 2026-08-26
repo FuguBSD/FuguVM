@@ -2,6 +2,7 @@
 # scripts read their identity keys here. See FuguBSD/Tooling.
 sync.pack org
 sync.pack perl
+sync.pack web
 dist.name        App-FuguVM
 dist.module      App::FuguVM
 dist.abstract    install and manage OpenBSD virtual machines under QEMU
