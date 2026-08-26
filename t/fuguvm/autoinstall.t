@@ -148,9 +148,17 @@ SKIP: {
 
 	# The child binds the loopback address only, because the file
 	# can hold a secret. The probe connects to the outbound address
-	# of this host, and it skips when the host has none.
+	# of this host, and it skips when the host has none. Some
+	# networks intercept and accept each connection. A refusal
+	# cannot occur there, and the probe also skips.
 	my $outbound = _outbound_address();
-	if ( defined $outbound && $outbound ne '127.0.0.1' ) {
+	if ( !defined $outbound || $outbound eq '127.0.0.1' ) {
+		pass('no outbound address to probe, loopback bind unproven');
+	}
+	elsif ( _network_intercepts($outbound) ) {
+		pass('the network accepts each connection, loopback bind unproven');
+	}
+	else {
 		my $reached = IO::Socket::INET->new(
 			PeerAddr => $outbound,
 			PeerPort => $port,
@@ -159,9 +167,6 @@ SKIP: {
 		);
 		is( $reached, undef,
 			"a connection to $outbound:$port fails" );
-	}
-	else {
-		pass('no outbound address to probe, loopback bind unproven');
 	}
 
 	ok( $responder->stop, 'stop returns 1' );
@@ -206,4 +211,32 @@ sub _outbound_address ()
 	close $sock;
 
 	return $address;
+}
+
+# _network_intercepts($address):
+#	Return 1 when a connection to a closed port on $address
+#	succeeds. That network intercepts each connection, and a
+#	bind probe proves nothing there.
+sub _network_intercepts ($address)
+{
+	my $listener = IO::Socket::INET->new(
+		LocalAddr => '127.0.0.1',
+		LocalPort => 0,
+		Proto     => 'tcp',
+		Listen    => 1,
+	) or return 0;
+
+	my $closed = $listener->sockport;
+	close $listener;
+
+	my $sock = IO::Socket::INET->new(
+		PeerAddr => $address,
+		PeerPort => $closed,
+		Proto    => 'tcp',
+		Timeout  => 2,
+	) or return 0;
+
+	close $sock;
+
+	return 1;
 }
