@@ -2,18 +2,18 @@
 
 Install and manage OpenBSD virtual machines under QEMU.
 
-`fuguvm` installs an OpenBSD guest without interaction, caches the installed
-disk, and drives the lifecycle: boot, wait, ssh, snapshot, and shutdown. It also
-carries an image through its whole life: an `autoinstall` directive builds it,
-`fuguvm image export` publishes it as a file, and a `base_disk` directive
-consumes that file on an other host. A project describes its guests in one
-`.fuguvmrc` at its root. The tool exists so a test suite can run against a real
-OpenBSD guest, on a Linux or Darwin host and in CI.
+The tool exists so a test suite can run against a real OpenBSD guest, on a
+Linux or Darwin host and in CI.
 
-FuguVM is written in Perl (v5.36) over the
-[Fugu](https://github.com/FuguBSD/Fugu) library. It adds no direct CPAN
-dependency of its own. The specification in [spec/](spec/index.md) states the
-design.
+`fuguvm` installs a guest without interaction, caches the installed disk, and
+drives the lifecycle: boot, wait, ssh, snapshot, and shutdown. `fuguvm image
+export` publishes an installed image as a file, and a `base_disk` directive
+consumes that file on an other host. A project describes its guests in one
+`.fuguvmrc` at its root.
+
+FuguVM uses Perl (v5.36) over the [Fugu](https://github.com/FuguBSD/Fugu)
+library. It adds no direct CPAN dependency of its own. The specification in
+[spec/](spec/index.md) states the design.
 
 ## Quick start
 
@@ -24,21 +24,9 @@ bin/fuguvm ssh -- uname -a
 bin/fuguvm down
 ```
 
-`make deps` installs the latest Fugu release, QEMU, and the SSH and HTTP modules
-the optional features use. See [INSTALL.md](INSTALL.md) for full instructions.
-
-## Layout
-
-- `bin/fuguvm` — the CLI entry point, over `App::FuguVM::CLI`
-- `lib/App/FuguVM/` — the modules, one concern each, every one with a `.pod`
-  sidecar
-- `man/fuguvm/fuguvm.1` — the mdoc(7) reference for the tool
-- `share/fuguvm/` — the expect scripts, the cache-generation file, the signify
-  keys of the supported releases, and the configuration samples
-- `spec/` — the specification; `t/fuguvm/`, `t/scripts/`, `t/ci/` — the test
-  tiers
-- `deps/` — per-OS dependency manifests, installed by `make deps`; `scripts/` —
-  the dependency, download, check and dist helpers
+`make deps` installs the latest Fugu release, QEMU, and the SSH and HTTP
+modules the optional features use. See [INSTALL.md](INSTALL.md) for full
+instructions.
 
 ## Documentation
 
