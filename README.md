@@ -1,6 +1,6 @@
 # FuguVM
 
-Install and manage OpenBSD virtual machines under QEMU.
+Install and manage OpenBSD virtual machines under QEMU, by hand or by agent.
 
 The tool exists so a test suite can run against a real OpenBSD guest, on a Linux
 or Darwin host and in CI.
