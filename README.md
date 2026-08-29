@@ -36,7 +36,7 @@ in a `.pod` sidecar; start with `lib/App/FuguVM.pod`.
 ## Commands
 
 ```sh
-make check          # lint + format + test + spec-check + ste-lint
+make check          # lint + format + test + spec-check + ste-lint + gitleaks
 make test           # prove -l t/{fuguvm,scripts,ci}/*.t
 prove -l t/fuguvm/foo.t    # one test file
 make format-fix     # auto-fix the Perl, Markdown, JSON and YAML formatting
@@ -44,7 +44,8 @@ make dist           # build the release tarball
 ```
 
 `make check` runs the Markdown format gate, and prettier runs through bunx. The
-operator installs bun, for example from Homebrew. No deps manifest provides it.
+operator installs bun and gitleaks, for example from Homebrew. No deps manifest
+provides them.
 
 The tests need the Fugu library on `@INC`; a local build of the sibling checkout
 works too: `cpanm --local-lib=local ../Fugu/build/Fugu-*.tar.gz`.

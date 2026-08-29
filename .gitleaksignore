@@ -1,0 +1,5 @@
+# The repo-specific false positives of the gitleaks gate
+# (Tooling MK-GITLEAKS-3), one fingerprint per line. The two test
+# fixtures hold disk-cache identifiers, not credentials.
+9f559b9a14ef7b853fa1c6ac85f64928a110ca4a:t/fuguvm/cli.t:generic-api-key:265
+9f559b9a14ef7b853fa1c6ac85f64928a110ca4a:t/fuguvm/diskcache.t:generic-api-key:182
