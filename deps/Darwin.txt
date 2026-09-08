@@ -1,8 +1,13 @@
+# The runtime dist entry takes the signify tier, and scripts/deps
+# needs signify(1) to check that signature. The tool environment
+# installs before every other one, so the command is there when the
+# runtime chain reaches the entry.
+tool pkg signify-osx
+
 runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
 runtime pkg qemu
 runtime pkg expect
 runtime pkg telnet
-runtime pkg signify-osx
 runtime pkg libssh2
 runtime cpan Net::SSH2
 runtime cpan HTTP::Daemon

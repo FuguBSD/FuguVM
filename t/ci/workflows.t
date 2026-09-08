@@ -52,11 +52,49 @@ for my $file (@files) {
 	my $text  = _slurp("$workflow/$file") // next;
 	my @lines = split /\n/, $text;
 
-	# No workflow installs dependencies itself. The shared action
-	# owns the whole install, so one step per job is the rule.
-	my @own = grep { m{^\s+run:.*\bmake\s+deps\b} } @lines;
-	is( scalar @own, 0, "$file runs no deps target of its own" )
-	    or diag( join "\n", @own );
+	# A job that uses the shared action must not install
+	# dependencies itself, because the action owns the whole
+	# install. A job without the action installs its own, for
+	# example the gitleaks of the secret gate, which the manifest
+	# provides in the tool environment. The test therefore reads
+	# each job block, not the whole file.
+	for my $block ( split /^(?=  [A-Za-z0-9_-]+:[ \t]*$)/m, $text ) {
+
+		# A run step holds its command on the same line, or in
+		# a block scalar over the lines that follow it.
+		my @own = grep { m{^\s+(?:run:\s*)?.*\bmake\s+deps\b} }
+		    split /\n/, $block;
+		next unless @own;
+		unlike( $block, qr{uses:\s*\S*setup-perl\S*},
+			      "$file: a job that runs make deps uses no"
+			    . ' setup-perl action' )
+		    or diag( join "\n", @own );
+
+		# make deps takes no argument. A word after it names a
+		# second target, and make stops with "No rule to make
+		# target". The fault reaches the runner alone, because
+		# the workflow is text everywhere else.
+		#
+		# deps-test and deps-develop are targets of their own,
+		# so the match ends the target name. A \b would end it
+		# before the dash and read "-test" as an argument.
+		#
+		# The test reads a command and never a comment or a
+		# body of prose, so the match starts the line.
+		for my $line (@own) {
+			my $command = $line =~ s/\A\s+//r;
+			next if $command =~ /\A#/;
+
+			my ($rest) = $command =~
+			    m{\A(?:run:\s*)?make\s+deps(?![-\w])(.*)\z};
+			next unless defined $rest;
+			$rest =~ s/\s+\z//;
+			next if $rest eq '' || $rest =~ m{\A[|&;)]};
+
+			fail(         "$file: make deps takes no argument, and"
+				    . " this line names$rest" );
+		}
+	}
 
 	for my $i ( 0 .. $#lines ) {
 		next unless $lines[$i] =~ m{uses:\s*(\S*setup-perl\S*)\s*$};
