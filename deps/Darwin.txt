@@ -1,8 +1,17 @@
+# The runtime dist entry takes the signify tier, and scripts/deps
+# needs signify(1) to check that signature. The tool environment
+# installs before every other one, so the command is there when the
+# runtime chain reaches the entry.
+tool pkg signify-osx
+
+# The secret gate of make check runs gitleaks, so the tool
+# environment installs it before every other environment.
+tool bin gitleaks https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_{os}_{arch}.tar.gz gitleaks
+
 runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
 runtime pkg qemu
 runtime pkg expect
 runtime pkg telnet
-runtime pkg signify-osx
 runtime pkg libssh2
 runtime cpan Net::SSH2
 runtime cpan HTTP::Daemon
