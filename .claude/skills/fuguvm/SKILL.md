@@ -53,13 +53,12 @@ troubleshooting. A project defines its VMs in a `.fuguvmrc` at its root.
 - SSH failures after an unclean shutdown — `bin/fuguvm disk check`, then
   `bin/fuguvm disk repair` with the VM stopped.
 - Start over from a clean slate: `bin/fuguvm destroy && bin/fuguvm up`.
-  `destroy` deletes the working disk only; the next `up` rebuilds it from the
-  cached installed image, so this is a cheap factory reset rather than a
-  reinstall.
-- To force a real reinstall — when debugging the installer itself, or when a
-  cached base is suspect — use `bin/fuguvm up --no-cache`, or drop the cached
-  bases with `bin/fuguvm cache clear`. `bin/fuguvm cache list` shows what is
-  cached and which entry the current configuration uses.
+  `destroy` deletes the working disk only. The next `up` rebuilds it from the
+  cached installed image. This is a cheap factory reset, not a reinstall.
+- To force a real reinstall, use `bin/fuguvm up --no-cache`, or drop the cached
+  bases with `bin/fuguvm cache clear`. Do this when you debug the installer
+  itself, or when a cached base is suspect. `bin/fuguvm cache list` shows what
+  is cached and which entry the current configuration uses.
 - On aarch64 hosts without hardware acceleration, pass `--emulate`.
 
 ## References

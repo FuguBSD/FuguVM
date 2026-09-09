@@ -10,9 +10,10 @@ specifies the namespace, the dependency boundary, and the shared files.
 - **ARC-NAMESPACE-1** — The repository holds one Perl namespace, `App::FuguVM::`
   (`lib/App/FuguVM/`), with `lib/App/FuguVM.pm` as the lead module of the
   App-FuguVM distribution.
-- **ARC-NAMESPACE-2** — One module holds one concern: the CLI, the
-  configuration, the guest lifecycle, the console, the disk, the disk cache, the
-  miniroot, the mirror proxy, QMP, and the state.
+- **ARC-NAMESPACE-2** — One module holds one concern. The concerns are the CLI,
+  the configuration, the guest lifecycle, the console, and the disk. The other
+  concerns are the disk cache, the miniroot, the mirror proxy, QMP, and the
+  state.
 - **ARC-NAMESPACE-3** — Every module must have a `.pod` sidecar and a test.
 
 <a id="arc-boundary"></a>

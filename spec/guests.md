@@ -40,14 +40,14 @@ lifecycle, the hosts, and the target design of the open work.
 ## The mirror proxy
 
 The mirror proxy caches the OpenBSD content that an install and a ports build
-fetch: the file sets, the packages, the source tarballs of a release, and the
-distfile tree. A size cap that the operator sets bounds the distfile tree, and
-the cap is off by default. The version prune bounds every other tree. The
-`fuguvm mirror` command fetches and verifies one file, and it verifies the
-cache. The host verifies each file that the tool itself downloads. The guest
-verifies its own fetches through the proxy: the installer verifies the sets,
-`pkg_add` verifies a package, `syspatch` verifies a patch set, and the ports
-tree verifies a distfile against `distinfo`.
+fetch. The content is the file sets, the packages, the source tarballs of a
+release, and the distfile tree. A size cap that the operator sets bounds the
+distfile tree, and the cap is off by default. The version prune bounds every
+other tree. The `fuguvm mirror` command fetches and verifies one file, and it
+verifies the cache. The host verifies each file that the tool itself downloads.
+The guest verifies its own fetches through the proxy. The installer verifies the
+sets, `pkg_add` verifies a package, and `syspatch` verifies a patch set. The
+ports tree verifies a distfile against `distinfo`.
 
 - **GST-MIRROR-1** — A mirror fetch must verify the `SHA256` manifest of the
   release under its release key, through Fugu LIB-SIGNIFY.
@@ -77,14 +77,14 @@ tree verifies a distfile against `distinfo`.
 ## File transfer
 
 - **GST-TRANSFER-1** — The tool must transfer files to and from a guest over
-  SSH, with quoting that the tool owns, and with exit codes that a script can
-  read.
+  SSH. The tool must own the quoting, and it must give exit codes that a script
+  can read.
 
 <a id="gst-images"></a>
 
 ## Image lifecycle
 
-Three tool surfaces carry an OpenBSD disk image through its whole life: the tool
+Three tool surfaces carry an OpenBSD disk image through its whole life. The tool
 builds one image, it publishes the image as a file, and an other host consumes
 that file. Every surface is a tool surface, because a consumer must never load
 an `App::FuguVM` module.
@@ -94,13 +94,13 @@ an `App::FuguVM` module.
   stay the default. The tool must serve the file to the guest from the loopback
   address only, and it must validate no answer in the file.
 - **GST-IMAGES-2** — `fuguvm image export <path>` must write the installed base
-  disk of the invoked VM as a full-disk image, as qcow2 by default and as a
-  sparse raw image with `--format=raw`, and it must not overwrite an existing
-  target.
+  disk of the invoked VM as a full-disk image. The format is qcow2 by default,
+  and a sparse raw image with `--format=raw`. The command must not overwrite an
+  existing target.
 - **GST-IMAGES-3** — A `base_disk <path>` directive must make an existing
-  full-disk image the base image of a guest, published as one write-once cache
-  entry for the whole project, so the tool installs nothing and every cache verb
-  and snapshot verb works on the imported entry.
+  full-disk image the base image of a guest. The tool publishes it as one
+  write-once cache entry for the whole project, so the tool installs nothing.
+  Every cache verb and snapshot verb works on the imported entry.
 - **GST-IMAGES-4** — The image-cache key must hash each input that shapes the
-  installed disk of its install mode, the response file included, and it must
-  hash no script that the install never ran.
+  installed disk of its install mode, the response file included. It must hash
+  no script that the install never ran.
