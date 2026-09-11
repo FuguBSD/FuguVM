@@ -1,8 +1,8 @@
 # Install FuguVM
 
 FuguVM runs on Perl v5.36 or later over the Fugu library, with QEMU as the
-hypervisor. There are two install flows: from a checkout with make, and from a
-release tarball with cpanm.
+hypervisor. There are two install flows: from a checkout with make, and from
+CPAN with cpanm.
 
 ## From a checkout
 
@@ -19,15 +19,14 @@ packages, `expect`, `telnet`, `signify`, and the SSH and HTTP modules.
 `make install` copies `bin/fuguvm`, the modules, the manual, and the share tree.
 `make uninstall` removes them.
 
-## From a release tarball
+## From CPAN
 
-Every release carries a standard Perl distribution tarball. Install the latest
-Fugu release first, then FuguVM; the stable URLs always serve the latest
-releases:
+Every release goes to CPAN as the
+[App-FuguVM](https://metacpan.org/dist/App-FuguVM) distribution. The
+distribution does not name Fugu as a prerequisite, so name both:
 
 ```sh
-cpanm --notest https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
-cpanm --notest https://github.com/FuguBSD/FuguVM/releases/latest/download/App-FuguVM.tar.gz
+cpanm --notest Fugu App::FuguVM
 ```
 
 The cpanm flow installs the modules, the binary, and the share tree. The mdoc(7)
