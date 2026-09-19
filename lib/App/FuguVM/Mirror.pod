@@ -21,6 +21,10 @@ The module is the one home of the mirror facts: the host, the URLs of
 one version and one architecture, the download helper, the release
 key, and the verification. L<Fugu::Signify> proves a signed SHA256
 manifest, and this module decides which manifest signs which file.
+The proof runs under the C<signify> engine of that module. A release
+of OpenBSD signs its F<SHA256> in the embedded form, and the C<perl>
+engine of L<Fugu::Signify> does not read that form, so the command
+makes the proof.
 
 A file must verify before it enters the cache, because the cache is
 what a later run reads. A verification failure therefore leaves no
@@ -64,7 +68,7 @@ in a repository is a trust anchor, so a human adds each file, and the
 commit that adds one states the comparison against F</etc/signify/>
 on a real OpenBSD host of that release.
 
-The verifier holds one key. The release directory of a numbered
+The verifier takes one key. The release directory of a numbered
 release carries one signature, under the base key of that release. A
 second key would accept a file that the version does not own. A
 snapshot release carries the key of the next release, so this module

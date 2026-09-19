@@ -23,7 +23,7 @@ phase applies.
 | Unit                                           | State | Done by | Note                                                                                                                                   |
 | ---------------------------------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | [ARC-NAMESPACE](architecture.md#arc-namespace) | done  | —       | [lib/App/FuguVM](../lib/App/FuguVM), [symbols.t](../t/scripts/symbols.t)                                                               |
-| [ARC-BOUNDARY](architecture.md#arc-boundary)   | done  | —       | [boundary.t](../t/fuguvm/boundary.t)                                                                                                   |
+| [ARC-BOUNDARY](architecture.md#arc-boundary)   | done  | —       | [boundary.t](../t/fuguvm/boundary.t), [Mirror.pm](../lib/App/FuguVM/Mirror.pm)                                                         |
 | [ARC-SHARE](architecture.md#arc-share)         | done  | —       | [share/fuguvm](../share/fuguvm), [miniroot.t](../t/fuguvm/miniroot.t)                                                                  |
 | [ARC-PROGRAMS](architecture.md#arc-programs)   | n-a   | —       | Citation only.                                                                                                                         |
 | [GST-INSTALL](guests.md#gst-install)           | done  | —       | [Guest.pm](../lib/App/FuguVM/Guest.pm), [guest.t](../t/fuguvm/guest.t), [miniroot.t](../t/fuguvm/miniroot.t)                           |

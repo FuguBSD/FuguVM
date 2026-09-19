@@ -22,7 +22,7 @@ package App::FuguVM::Mirror;
 use Fugu::File;
 use Fugu::Log;
 use Fugu::Process;
-use Fugu::Signify;
+use Fugu::Signify 0.5.0;
 
 # App::FuguVM::Mirror - the OpenBSD mirror of one guest.
 #
@@ -30,6 +30,10 @@ use Fugu::Signify;
 # of a version and an architecture, the download helper, the release
 # key, and the verification. Fugu::Signify proves the signed SHA256
 # manifest, and this module decides which manifest signs which file.
+# The proof runs under the signify engine of that module. A release
+# of OpenBSD signs its SHA256 in the embedded form, which the perl
+# engine of Fugu::Signify does not read, so the command makes the
+# proof.
 #
 # A file must verify before it enters the cache, because the cache is
 # what a later run reads. A verification failure therefore leaves no
@@ -214,8 +218,23 @@ sub manifest ( $self, $scope )
 	my $signature = $self->_ensure_unverified( $scope, 'SHA256.sig' );
 	return if !defined $signature;
 
-	my $signify = $self->_signify($key);
-	if ( !defined $signify->verify( $manifest, $signature ) ) {
+	# The call passes one key, and not a key set. The release
+	# directory of a numbered release carries one signature, under
+	# the base key of that release, so a second key would accept a
+	# file that the version does not own.
+	#
+	# The engine is signify, and not the perl default. A release of
+	# OpenBSD signs its SHA256 in the embedded form: the signature
+	# file carries the manifest after the two signature lines. The
+	# perl engine reads a file of two lines only, and it refuses
+	# such a pair, so the command makes the proof.
+	my $signify = Fugu::Signify->new( engine => 'signify' );
+	my $proven  = $signify->verify(
+		keys      => [$key],
+		file      => $manifest,
+		signature => $signature,
+	);
+	if ( !defined $proven ) {
 		$self->{error} = $self->_signify_error($signify);
 		return;
 	}
@@ -563,16 +582,6 @@ sub _ensure_unverified ( $self, $scope, $file )
 	}
 
 	return $path;
-}
-
-# $self->_signify($key):
-#	Build the verifier over the one release key. The release
-#	directory of a numbered release carries one signature, under
-#	the base key of that release, so a second key would accept a
-#	file that the version does not own.
-sub _signify ( $self, $key )
-{
-	return Fugu::Signify->new( keys => [$key] );
 }
 
 # $self->_signify_error($signify):

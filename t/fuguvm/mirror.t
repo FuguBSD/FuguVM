@@ -1,8 +1,8 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
 # The mirror of one guest: the URLs, the key resolution and the
-# verification. The signify(1) subtests generate their own key pair,
-# and each one skips when the command is absent.
+# verification. The signed subtests generate their own key pair, and
+# each one skips when signify(1) is absent.
 
 use v5.36;
 use Test::More;
@@ -11,6 +11,7 @@ use lib "$RealBin/../../lib";
 use Digest::SHA ();
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
+use Fugu::Signify;
 use Fugu::TestLog;
 
 use_ok('App::FuguVM::Mirror');
@@ -130,14 +131,20 @@ my $MIRROR_DIR = 'cdn.openbsd.org/pub/OpenBSD';
     like($mirror->error, qr/verification is off/, 'with the same reason');
 }
 
-# The signify(1) subtests. Each one generates its own key pair, writes
-# a manifest in the sha256(1) line form, signs it, and seeds the
-# cache at the mirror paths. The manifests are then local, so the
-# module fetches nothing.
-my $SIGNIFY = _find_signify();
+# The signed subtests. Each one generates its own key pair, writes a
+# manifest in the sha256(1) line form, signs it, and seeds the cache
+# at the mirror paths. The manifests are then local, so the module
+# fetches nothing.
+#
+# A key pair and a signature are private key operations, so the
+# fixture signer takes the signify engine, and its is_available then
+# reports the command. Each fixture signature carries the embedded
+# form, which is the form that a release of OpenBSD publishes.
+my $SIGNER = Fugu::Signify->new(engine => 'signify');
+my $CAN_SIGN = $SIGNER->is_available;
 
 subtest 'the release manifest and the file proofs' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(
 	release => { 'base78.tgz' => 'good bytes' });
@@ -164,8 +171,32 @@ subtest 'the release manifest and the file proofs' => sub {
 	'verify_file returns undef for a name the manifest does not hold');
 };
 
+subtest 'the embedded signature of a release verifies' => sub {
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
+
+    # A release of OpenBSD signs its SHA256 in the embedded form: the
+    # SHA256.sig file carries the two signature lines and then the
+    # whole manifest. The proof must read that file, because it is
+    # the only file that a release publishes. A verifier that takes a
+    # file of two lines alone refuses every real release, and
+    # 'fuguvm up' then installs no guest.
+    my ($cache_dir, $keys_dir) = _signed_fixture(
+	release => { 'base78.tgz' => 'good bytes' });
+
+    my $sig = "$cache_dir/proxy/$MIRROR_DIR/7.8/arm64/SHA256.sig";
+    my $manifest = "$cache_dir/proxy/$MIRROR_DIR/7.8/arm64/SHA256";
+    my @lines = split /\n/, _slurp($sig);
+    ok(@lines > 2, 'the signature file holds more than the two lines');
+    is(join("\n", @lines[2 .. $#lines]) . "\n", _slurp($manifest),
+	'and the manifest follows them, as a release publishes it');
+
+    my $mirror = _mirror($cache_dir, keys_dir => $keys_dir);
+    ok(defined $mirror->manifest('release'),
+	'the mirror proves an embedded signature');
+};
+
 subtest 'a repeated identical manifest line changes nothing' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     # The real SHA256 of the OpenBSD 7.8 amd64 directory repeats the
     # install image lines. The digest check must accept a duplicate
@@ -175,9 +206,7 @@ subtest 'a repeated identical manifest line changes nothing' => sub {
     my $keys_dir = tempdir(CLEANUP => 1);
     my $cache_dir = tempdir(CLEANUP => 1);
 
-    system($SIGNIFY, '-G', '-n',
-	'-p', "$work/key.pub", '-s', "$work/key.sec") == 0
-	or die "signify -G failed\n";
+    _generate("$work/key");
     require File::Copy;
     File::Copy::copy("$work/key.pub", "$keys_dir/openbsd-78-base.pub")
 	or die "cannot copy the public key: $!\n";
@@ -190,9 +219,7 @@ subtest 'a repeated identical manifest line changes nothing' => sub {
     open my $fh, '>', $local or die $!;
     print $fh $line, $line;
     close $fh;
-    system($SIGNIFY, '-S', '-s', "$work/key.sec",
-	'-m', $local, '-x', "$local.sig") == 0
-	or die "signify -S failed\n";
+    _sign("$work/key.sec", $local);
 
     _seed($cache_dir, '7.8/arm64/SHA256', $line . $line);
     _seed($cache_dir, '7.8/arm64/SHA256.sig', _slurp("$local.sig"));
@@ -213,9 +240,7 @@ subtest 'a repeated identical manifest line changes nothing' => sub {
     open $fh, '>', $local or die $!;
     print $fh $conflict;
     close $fh;
-    system($SIGNIFY, '-S', '-s', "$work/key.sec",
-	'-m', $local, '-x', "$local.sig") == 0
-	or die "signify -S failed\n";
+    _sign("$work/key.sec", $local);
     _seed($cache_dir, '7.8/SHA256', $conflict);
     _seed($cache_dir, '7.8/SHA256.sig', _slurp("$local.sig"));
 
@@ -225,7 +250,7 @@ subtest 'a repeated identical manifest line changes nothing' => sub {
 };
 
 subtest 'a tampered manifest fails its signature' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(
 	release => { 'base78.tgz' => 'good bytes' });
@@ -242,7 +267,7 @@ subtest 'a tampered manifest fails its signature' => sub {
 };
 
 subtest 'ensure verifies before it stores' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(
 	release => { 'base78.tgz' => 'good bytes' });
@@ -271,7 +296,7 @@ subtest 'ensure verifies before it stores' => sub {
 };
 
 subtest 'verify_cache classifies every cached file' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(release => {
 	'base78.tgz' => 'good bytes',
@@ -297,7 +322,7 @@ subtest 'verify_cache classifies every cached file' => sub {
 };
 
 subtest 'verify_cache never skips a cached file' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     # A scope whose files are cached with no manifest is what a
     # 'verify no' run produces. The files read as unknown, never as
@@ -328,7 +353,7 @@ subtest 'verify_cache never skips a cached file' => sub {
 };
 
 subtest 'a failed manifest pair leaves the cache' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(
 	release => { 'base78.tgz' => 'good bytes' });
@@ -355,7 +380,7 @@ subtest 'a failed manifest pair leaves the cache' => sub {
 };
 
 subtest 'the source manifest verifies the version directory' => sub {
-    plan skip_all => 'signify(1) not available' if !defined $SIGNIFY;
+    plan skip_all => 'signify(1) not available' if !$CAN_SIGN;
 
     my ($cache_dir, $keys_dir) = _signed_fixture(
 	source => { 'ports.tar.gz' => 'the ports tree' });
@@ -438,20 +463,44 @@ sub _temp_file
     return $tmp;
 }
 
-# _find_signify():
-#	The signify command on PATH, in the search order of
-#	Fugu::Signify, or undef.
-sub _find_signify
+# _generate($stem):
+#	A fresh key pair at $stem.pub and $stem.sec.
+sub _generate
 {
-    for my $name (qw(signify-openbsd signify)) {
-	for my $dir (split /:/, $ENV{PATH} // '') {
-	    next unless length $dir;
-	    my $path = "$dir/$name";
-	    return $path if -f $path && -x $path;
-	}
-    }
+    my ($stem) = @_;
 
-    return undef;
+    $SIGNER->generate(comment => 'a mirror test key',
+	public => "$stem.pub", secret => "$stem.sec")
+	or die 'cannot generate a key pair: ', $SIGNER->error, "\n";
+
+    return;
+}
+
+# _sign($secret, $path):
+#	Sign one file under the private half, at $path.sig, in the
+#	form that a release of OpenBSD publishes.
+#
+#	That form is the embedded one: the signature file carries the
+#	two signature lines and then the whole message. sign writes
+#	the detached form, which holds the two lines alone, so this
+#	helper appends the message. signify(1) reads the signature
+#	from the first two lines and proves the file of -m, so the
+#	proof under test meets the real shape.
+sub _sign
+{
+    my ($secret, $path) = @_;
+
+    $SIGNER->sign(secret => $secret, file => $path,
+	signature => "$path.sig")
+	or die "cannot sign $path: ", $SIGNER->error, "\n";
+
+    my $detached = _slurp("$path.sig");
+    my @lines = split /\n/, $detached;
+    open my $fh, '>', "$path.sig" or die "write $path.sig: $!";
+    print $fh join("\n", @lines[0, 1]), "\n", _slurp($path);
+    close $fh;
+
+    return;
 }
 
 # _signed_fixture(%scopes):
@@ -468,12 +517,10 @@ sub _signed_fixture
     my $keys_dir = tempdir(CLEANUP => 1);
     my $work = tempdir(CLEANUP => 1);
 
-    # signify -G wants one basename for the pair, so the pair lands
-    # in the work directory and the public half moves to the release
-    # name.
-    system($SIGNIFY, '-G', '-n',
-	'-p', "$work/key.pub", '-s', "$work/key.sec") == 0
-	or die "signify -G failed\n";
+    # The generator holds the two halves to one stem, so the pair
+    # lands in the work directory and the public half moves to the
+    # release name.
+    _generate("$work/key");
     require File::Copy;
     File::Copy::copy("$work/key.pub", "$keys_dir/openbsd-78-base.pub")
 	or die "cannot copy the public key: $!\n";
@@ -495,9 +542,7 @@ sub _signed_fixture
 	print $fh $manifest;
 	close $fh;
 
-	system($SIGNIFY, '-S', '-s', "$work/key.sec",
-	    '-m', $local, '-x', "$local.sig") == 0
-	    or die "signify -S failed\n";
+	_sign("$work/key.sec", $local);
 
 	_seed($cache_dir, "$dir/SHA256", $manifest);
 	_seed($cache_dir, "$dir/SHA256.sig", _slurp("$local.sig"));

@@ -20,7 +20,8 @@ specifies the namespace, the dependency boundary, and the shared files.
 
 ## The dependency boundary
 
-The dependency direction is one way.
+The dependency direction is one way. The manifests name the stable asset of the
+latest `Fugu::` release, so no other part holds a version floor.
 
 - **ARC-BOUNDARY-1** — `App::FuguVM` must use only the installed `Fugu::`
   library and core Perl. It must not use `Protocol::`, and it must not use
@@ -28,6 +29,9 @@ The dependency direction is one way.
 - **ARC-BOUNDARY-2** — No module imports a CPAN module directly. Every CPAN
   module it reaches comes through an optional `Fugu::` feature, declared in the
   manifests.
+- **ARC-BOUNDARY-3** — A module that needs an interface of a named `Fugu::`
+  release must assert that version at its `use` line. An older library must give
+  a version error, and never a failure inside a method.
 
 <a id="arc-share"></a>
 
