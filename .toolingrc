@@ -9,7 +9,6 @@ dist.abstract    install and manage OpenBSD virtual machines under QEMU
 dist.author      Dick Olsson <hi@senzilla.io>
 dist.exe         bin/fuguvm
 dist.testdir     t/fuguvm
-dist.share-extra scripts/ftp
 dist.prereq      Net::SSH2
 dist.prereq      HTTP::Daemon
 dist.prereq      HTTP::Message

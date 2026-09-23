@@ -648,6 +648,7 @@ sub _mirror ( $self, $proxy = undef )
 		version => $config->{version},
 		arch    => $config->{arch},
 		verify  => $config->{verify} // 1,
+		log     => $self->{log},
 		(
 			defined $config->{signify_dir}
 			? ( keys_dir => $config->{signify_dir} )

@@ -5,6 +5,7 @@ use v5.36;
 use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
+use Fugu::Log;
 use Fugu::TestLog;
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
@@ -614,6 +615,27 @@ SKIP: {
     is(App::FuguVM::CLI->run("--project=$project", '--quiet',
 	    'mirror', 'verify'),
 	0, 'mirror verify over an empty cache exits 0');
+}
+
+# The mirror of the command reports through the logger of the CLI, so
+# --quiet reaches the fetch line of GST-MIRROR-5. The process default
+# of this test is quiet, and the CLI here is not, so a mirror that
+# took the default would carry the quiet mode instead.
+{
+    my $project = _cache_project();
+    my $built;
+
+    {
+	no warnings 'redefine';
+	my $new = \&App::FuguVM::Mirror::new;
+	local *App::FuguVM::Mirror::new = sub { return $built = $new->(@_) };
+	_run_captured("--project=$project", 'mirror', 'verify');
+    }
+
+    if (ok(defined $built, 'mirror verify builds one mirror')) {
+	is($built->{log}->mode, Fugu::Log::MODE_STDERR,
+	    'and the mirror takes the logger of the CLI');
+    }
 }
 
 # An absent public key for the version is a configuration error. The

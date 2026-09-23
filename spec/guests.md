@@ -54,7 +54,17 @@ ports tree verifies a distfile against `distinfo`.
 - **GST-MIRROR-2** — A verification failure must leave no file in the cache.
 - **GST-MIRROR-3** — A `verify no` directive must turn the host proof off and
   must make the installer waive its own check, each with one warning. The
-  default must stay `verify yes`.
+  default must stay `verify yes`. The warning that the mirror writes must not
+  take the logger of the caller, because `--quiet` must not drop it.
+- **GST-MIRROR-4** — A mirror fetch must download through Fugu LIB-CURL, and
+  must bound the fetch at 3600 seconds. A set file is large, and a stalled
+  connection must not hold the tool forever.
+- **GST-MIRROR-5** — The mirror must log the URL of each fetch that reaches the
+  network, because the downloader writes no progress. That line must go to the
+  logger of the caller, so `--quiet` drops it.
+- **GST-MIRROR-6** — A mirror must download into a private directory at
+  mode 0700. The downloader writes a sibling file with a name that another
+  process can guess, and it opens that file without `O_EXCL`.
 
 <a id="gst-arch"></a>
 
