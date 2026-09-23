@@ -4,7 +4,7 @@
 #
 # Names in scripts/ carry no extension. Thus only the shebang says
 # what language a file is in. Several call sites invoke them as bare
-# paths: the Makefile, scripts/deps, CI. A lost exec bit or a broken
+# paths: mk/org.mk, mk/perl.mk, CI. A lost exec bit or a broken
 # shebang thus fails at use, not at build.
 
 use v5.36;
@@ -15,7 +15,7 @@ my $dir = "$RealBin/../../scripts";
 
 # Named, not globbed: a script that disappears must fail here. The
 # list must not shrink silently.
-my @scripts = qw(deps dist ftp fugubench spec-check ste-lint);
+my @scripts = qw(dist fugubench spec-check ste-lint);
 
 for my $name (@scripts) {
 	my $path = "$dir/$name";

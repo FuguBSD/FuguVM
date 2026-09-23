@@ -16,7 +16,7 @@ on:
       - "lib/**.pm"
       # The expect scripts, the cache-generation file and the samples
       - "share/fuguvm/**"
-      # The setup action installs the dependencies through scripts/deps
+      # The setup action installs the dependencies through fugubench
       - "scripts/*"
       - "deps/Linux.txt"
       - ".github/workflows/integration.yml"
