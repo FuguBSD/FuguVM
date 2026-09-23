@@ -853,6 +853,7 @@ sub cmd_mirror ( $self, $cli, @args )
 		version => $vm_config->{version},
 		arch    => $vm_config->{arch},
 		verify  => $verifies,
+		log     => $self->{log},
 		(
 			defined $vm_config->{signify_dir}
 			? ( keys_dir => $vm_config->{signify_dir} )

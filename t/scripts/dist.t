@@ -60,7 +60,6 @@ subtest 'the staged tree is a standard Perl distribution' => sub {
 	ok( -f "$tree/lib/App/FuguVM/Guest.pm", 'a module ships' );
 	ok( -f "$tree/bin/fuguvm",              'the binary ships' );
 	ok( -f "$tree/share/fuguvm/cache-generation", 'a share file ships' );
-	ok( -f "$tree/scripts/ftp",             'the ftp helper ships' );
 	ok( -f "$tree/man/fuguvm/fuguvm.1",     'the manual ships' );
 	ok( -f "$tree/t/fuguvm/guest.t",        'a test ships' );
 
@@ -106,11 +105,6 @@ subtest 'the Makefile.PL declares the identity' => sub {
 	like( $text, qr/MIN_PERL_VERSION/,        'the perl floor is stated' );
 	like( $text, qr/'lib\/App\/FuguVM\/Guest\.pm'/,
 		'the PM map lists modules' );
-	like(
-		$text,
-		qr{'scripts/ftp' => '\$\(INST_LIB\)/auto/share/dist/App-FuguVM/scripts/ftp'},
-		'the ftp helper installs into the share tree'
-	);
 };
 
 done_testing();

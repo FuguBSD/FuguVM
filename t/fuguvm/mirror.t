@@ -11,6 +11,7 @@ use lib "$RealBin/../../lib";
 use Digest::SHA ();
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
+use Fugu::Log;
 use Fugu::Signify;
 use Fugu::TestLog;
 
@@ -110,7 +111,12 @@ my $MIRROR_DIR = 'cdn.openbsd.org/pub/OpenBSD';
 # it did not make.
 {
     my $cache_dir = tempdir(CLEANUP => 1);
-    my $mirror = _mirror($cache_dir, verify => 0);
+
+    # GST-MIRROR-3 demands the warning, and --quiet must not drop
+    # it. The mirror therefore takes a quiet logger here, and the
+    # capture makes the process default write to standard error.
+    my $mirror = _mirror($cache_dir, verify => 0,
+	log => Fugu::Log->new(mode => Fugu::Log::MODE_QUIET));
 
     my $warned = _capture_stderr(sub {
 	no warnings 'redefine';
@@ -121,7 +127,8 @@ my $MIRROR_DIR = 'cdn.openbsd.org/pub/OpenBSD';
 		'https://cdn.openbsd.org/pub/OpenBSD/7.8/arm64/base78.tgz'),
 	    'ensure with verify 0 stores the file');
     });
-    like($warned, qr/unproven/i, 'and it logs one warning');
+    like($warned, qr/unproven/i,
+	'and a quiet logger of the caller keeps the warning');
 
     is($mirror->verify_file('release', 'base78.tgz', '/tmp/x'), undef,
 	'verify_file with verify 0 returns undef');
@@ -130,6 +137,123 @@ my $MIRROR_DIR = 'cdn.openbsd.org/pub/OpenBSD';
 	'manifest with verify 0 returns undef');
     like($mirror->error, qr/verification is off/, 'with the same reason');
 }
+
+# The download path. A stub named curl on a private PATH serves the
+# downloader, so no subtest here reaches the network. The mirror
+# resolves its command in the constructor, so PATH must hold the stub
+# before the mirror exists.
+my $FETCH_URL = 'https://cdn.openbsd.org/pub/OpenBSD/7.8/arm64/base78.tgz';
+my $WRITE_BYTES = "printf 'set bytes' > \"\$out\"\necho 200\n";
+
+subtest 'fetch returns the temporary file of a download' => sub {
+    my $mirror = _stub_mirror($WRITE_BYTES);
+
+    my $tmp = $mirror->fetch($FETCH_URL);
+    ok(defined $tmp, 'fetch returns the temporary file') or return;
+    is(_slurp($tmp->filename), 'set bytes', 'and the file holds the bytes');
+};
+
+subtest 'fetch reports a failed download' => sub {
+    my $mirror = _stub_mirror(
+	"echo 'curl: (7) Failed to connect' >&2\nexit 7\n");
+
+    is($mirror->fetch($FETCH_URL), undef, 'fetch returns undef');
+    like($mirror->error, qr/\Q$FETCH_URL\E/, 'and error names the URL');
+};
+
+subtest 'fetch reports a download of no bytes' => sub {
+    # The stub creates the file at the path of the argument list. A
+    # stub that creates no file stops the fetch at the rename, and
+    # the zero-byte branch never runs.
+    my $mirror = _stub_mirror(": > \"\$out\"\necho 200\n");
+
+    is($mirror->fetch($FETCH_URL), undef, 'fetch returns undef');
+    like($mirror->error, qr/no bytes/, 'and error states the reason');
+};
+
+subtest 'fetch reports an absent downloader' => sub {
+    my $mirror = do {
+	local $ENV{PATH} = tempdir(CLEANUP => 1);
+	_mirror(tempdir(CLEANUP => 1));
+    };
+
+    is($mirror->fetch($FETCH_URL), undef, 'fetch returns undef');
+    like($mirror->error, qr/no executable command/,
+	'and error states the reason');
+};
+
+subtest 'the mirror holds one downloader' => sub {
+    my $mirror = _stub_mirror($WRITE_BYTES);
+    my $downloader = $mirror->{download};
+
+    # The constructor resolved the command, so a PATH that holds no
+    # downloader stops no later fetch.
+    local $ENV{PATH} = tempdir(CLEANUP => 1);
+
+    ok(defined $mirror->fetch($FETCH_URL), 'the first fetch downloads');
+    ok(defined $mirror->fetch($FETCH_URL), 'and the second one downloads');
+    is($mirror->{download}, $downloader, 'and one downloader serves both');
+};
+
+subtest 'the download lands in the private directory of the mirror' => sub {
+    my $mirror = _stub_mirror($WRITE_BYTES);
+    is($mirror->{tmpdir}, undef, 'the constructor makes no directory');
+
+    my $tmp = $mirror->fetch($FETCH_URL);
+    ok(defined $tmp, 'the fetch downloads') or return;
+
+    my $dir = "$mirror->{tmpdir}";
+    like($tmp->filename, qr{\A\Q$dir\E/},
+	'and the file lives in the directory that the fetch made');
+    is((stat $dir)[2] & 07777, 0700, 'and the directory carries mode 0700');
+
+    ok(defined $mirror->fetch($FETCH_URL), 'the second fetch downloads');
+    is("$mirror->{tmpdir}", $dir, 'and the mirror holds the one directory');
+};
+
+# File::Temp croaks when the temporary directory of the host is absent
+# or unwritable. That is an environment failure, so the fetch reports
+# it as it reports every other one, and the constructor never sees it.
+subtest 'a refused download directory is a failure of the fetch' => sub {
+    my $mirror = _stub_mirror($WRITE_BYTES);
+
+    no warnings 'redefine';
+    local *File::Temp::newdir = sub { die "no temporary directory\n" };
+
+    is($mirror->fetch($FETCH_URL), undef, 'the fetch returns undef');
+    like($mirror->error, qr/download directory/,
+	'and error names the download directory');
+    like($mirror->error, qr/no temporary directory/,
+	'and it carries the reason of File::Temp');
+};
+
+subtest 'the fetch bounds the download at 3600 seconds' => sub {
+    my $mirror = _stub_mirror($WRITE_BYTES);
+
+    ok(defined $mirror->fetch($FETCH_URL), 'the fetch downloads') or return;
+    is(_slurp($mirror->{download}->command . '.max-time'), "3600\n",
+	'and --max-time carries the bound of the mirror');
+};
+
+# The mirror logs through its own logger, so --quiet of the tool
+# reaches the line. The capture puts the noisy logger on the process
+# default, so a line through Fugu::Log->default would reach the quiet
+# capture too.
+subtest 'the fetch logs the URL through the logger of the mirror' => sub {
+    my $loud = _capture_stderr(sub {
+	my $mirror = _stub_mirror($WRITE_BYTES,
+	    log => Fugu::Log->new(mode => Fugu::Log::MODE_STDERR));
+	ok(defined $mirror->fetch($FETCH_URL), 'the loud fetch downloads');
+    });
+    like($loud, qr/\Q$FETCH_URL\E/, 'and the log line names the URL');
+
+    my $quiet = _capture_stderr(sub {
+	my $mirror = _stub_mirror($WRITE_BYTES,
+	    log => Fugu::Log->new(mode => Fugu::Log::MODE_QUIET));
+	ok(defined $mirror->fetch($FETCH_URL), 'the quiet fetch downloads');
+    });
+    unlike($quiet, qr/\Q$FETCH_URL\E/, 'and a quiet logger drops the line');
+};
 
 # The signed subtests. Each one generates its own key pair, writes a
 # manifest in the sha256(1) line form, signs it, and seeds the cache
@@ -409,6 +533,41 @@ sub _mirror
 	arch    => 'arm64',
 	%args,
     );
+}
+
+# _stub_mirror($body, %args):
+#	A mirror whose downloader is a stub named curl. The base name
+#	of the command names the dialect, so the stub drives the curl
+#	dialect. PATH holds the directory of the stub alone while the
+#	constructor resolves the command. The body runs with $out set
+#	to the output argument of that dialect. The stub writes the
+#	--max-time value of each run to "$0.max-time". %args goes to
+#	the constructor of the mirror.
+sub _stub_mirror
+{
+    my ($body, %args) = @_;
+
+    my $bin = tempdir(CLEANUP => 1);
+    my $path = "$bin/curl";
+
+    open my $fh, '>', $path or die "open $path: $!";
+    print $fh <<'STUB', $body;
+#!/bin/sh
+out=
+while [ $# -gt 0 ]; do
+	case $1 in
+	--output) shift; out=$1 ;;
+	--max-time) shift; echo "$1" > "$0.max-time" ;;
+	esac
+	shift
+done
+STUB
+    close $fh;
+    chmod 0755, $path or die "chmod $path: $!";
+
+    local $ENV{PATH} = $bin;
+
+    return _mirror(tempdir(CLEANUP => 1), %args);
 }
 
 # _cache($cache_dir):
