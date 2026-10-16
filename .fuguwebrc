@@ -18,6 +18,7 @@ page "index.html" {
 page "manuals.html" {
 	title = Manuals
 	index = yes
+	body  = manuals.body.html
 }
 
 page "404.html" {
@@ -26,12 +27,12 @@ page "404.html" {
 	unlinked = yes
 }
 
-manuals "Commands" {
-	dir    = man/fuguvm
-	anchor = commands
+manuals commands {
+	heading = Commands
+	dir     = man/fuguvm
 }
 
-modules "Modules" {
-	dir    = lib/App/FuguVM
-	anchor = modules
+modules modules {
+	heading = Modules
+	dir     = lib/App/FuguVM
 }
