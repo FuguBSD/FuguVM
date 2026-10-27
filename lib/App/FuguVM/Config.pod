@@ -209,7 +209,8 @@ the opposite.
 
 =head1 SEE ALSO
 
-L<Fugu::Config>, L<App::FuguVM::CLI>, L<App::FuguVM::Guest>, L<fuguvm(1)>
+L<Fugu::Config>, L<App::FuguVM::CLI>, L<App::FuguVM::Guest>, L<fuguvm(1)>,
+L<fuguvmrc(5)>
 
 =head1 AUTHOR
 

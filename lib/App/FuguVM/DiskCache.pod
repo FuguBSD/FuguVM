@@ -273,7 +273,7 @@ The guest permits root login with a password. QEMU binds the
 forwarded SSH port and the serial console port of the guest to the
 configured C<bind_address>. The default is C<127.0.0.1>. With
 C<bind_address 0.0.0.0>, the password is not a localhost-only secret.
-See L<fuguvm(1)>.
+See L<fuguvm(7)>.
 
 =head1 SEE ALSO
 

@@ -60,7 +60,9 @@ subtest 'the staged tree is a standard Perl distribution' => sub {
 	ok( -f "$tree/lib/App/FuguVM/Guest.pm", 'a module ships' );
 	ok( -f "$tree/bin/fuguvm",              'the binary ships' );
 	ok( -f "$tree/share/fuguvm/cache-generation", 'a share file ships' );
-	ok( -f "$tree/man/fuguvm/fuguvm.1",     'the manual ships' );
+	ok( -f "$tree/man/fuguvm/fuguvm.1",     'the command manual ships' );
+	ok( -f "$tree/man/fuguvm/fuguvmrc.5",   'the file format manual ships' );
+	ok( -f "$tree/man/fuguvm/fuguvm.7",     'the guest manual ships' );
 	ok( -f "$tree/t/fuguvm/guest.t",        'a test ships' );
 
 	my $output = `$^X -c "$tree/Makefile.PL" 2>&1`;

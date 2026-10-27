@@ -1,0 +1,212 @@
+.\" $OpenBSD$
+.\"
+.\" Copyright (c) 2026 Dick Olsson <hi@senzilla.io>
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted, provided that the above
+.\" copyright notice and this permission notice appear in all copies.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+.\"
+.Dd $Mdocdate: October 27 2026 $
+.Dt FUGUVMRC 5
+.Os
+.Sh NAME
+.Nm fuguvmrc
+.Nd configuration file of fuguvm
+.Sh DESCRIPTION
+.Xr fuguvm 1
+reads two files, both named
+.Pa .fuguvmrc :
+the global file in the home directory, and the project file at the
+project root.
+The project file wins.
+A setting is one
+.Ar name Ar value
+or
+.Ar name No = Ar value
+line.
+A guest is a
+.Ic vm
+block, named by its guest name.
+A
+.Ql #
+starts a comment.
+A line that does not parse is an error that names the file and the
+line, and the tool exits with status 3.
+.Bd -literal -offset indent
+cache_dir  ~/.cache/fuguvm
+default_vm default
+
+vm "default" {
+	arch         arm64
+	version      7.8
+	memory       2048
+	disk_size    8G
+	ssh_port     2222
+	console_port 4444
+}
+.Ed
+.Pp
+The top-level settings are as follows:
+.Bl -tag -width "distfile_cache" -offset indent
+.It Ic cache_dir
+The cache directory.
+The default is
+.Pa ~/.cache/fuguvm .
+.It Ic state_dir
+The state directory, in the project file only.
+The default is
+.Pa .fuguvm/state .
+.It Ic default_vm
+The guest that
+.Fl Fl vm
+defaults to.
+The default is
+.Cm default .
+.It Ic ssh_pubkey
+The SSH public key that
+.Cm up
+installs for root.
+.It Ic qemu_version
+The pinned version of the QEMU binary, as one or more dot-separated
+numbers.
+Without it the tool checks nothing.
+See ARCHITECTURE in
+.Xr fuguvm 7 .
+.It Ic distfile_cache
+The size cap of the distfile tree, as a byte count or a number with a
+.Cm K ,
+.Cm M
+or
+.Cm G
+suffix.
+The default is 0, which turns the distfile cache off.
+See MIRROR CACHE in
+.Xr fuguvm 7 .
+.El
+.Pp
+The settings of a
+.Ic vm
+block are as follows.
+The first five also stand at the top level of either file, and the
+block wins.
+.Bl -tag -width "root_password_file" -offset indent
+.It Ic bind_address
+The host IPv4 address of every forwarded port, in dotted-decimal form.
+The default is
+.Li 127.0.0.1 .
+See ADDRESSES AND PORTS in
+.Xr fuguvm 7 .
+.It Ic image_cache Cm yes | no
+Whether
+.Cm up
+uses the image cache.
+The default is
+.Cm yes .
+.It Ic verify Cm yes | no
+Whether the tool verifies each mirror download under the release key,
+and whether the installer verifies its sets.
+The default is
+.Cm yes .
+.It Ic signify_dir
+The directory of the signify public keys, before
+.Pa /etc/signify/
+and the shipped keys.
+.It Ic ssh_pubkey
+As above.
+.It Ic name
+The name of the guest in messages and in the disk directory.
+The default is the block name.
+.It Ic arch Cm arm64 | amd64
+The guest architecture.
+The default is
+.Cm arm64 .
+.It Ic version
+The
+.Ox
+release.
+The default is 7.8.
+.It Ic memory
+The memory in megabytes.
+The default is 2048.
+.It Ic disk_size
+The virtual disk size, as
+.Xr qemu-img 1
+reads it.
+The default is 8G.
+.It Ic ssh_port , console_port
+The forwarded SSH port and the serial console port: a number from 1 to
+65535, or
+.Cm auto .
+The defaults are 2222 and 4444.
+.It Ic autoinstall
+An
+.Xr autoinstall 8
+response file.
+.It Ic base_disk
+An existing full-disk image, qcow2 or raw.
+.It Ic root_password_file
+A file whose first line is the root password of the guest.
+.El
+.Pp
+Each path value expands a leading tilde and resolves a relative path
+against the project root.
+A
+.Ic distfile_cache
+line inside a block does not apply, and a
+.Ic qemu_version
+line there is an error.
+A yes/no value that is neither gives a warning and the default.
+.Pp
+A guest resolves in this order: a
+.Ic vm
+block of the project file, a
+.Ic vm
+block of the global file, and the flat settings file
+.Pa .fuguvm/vms/ Ns Ar name Ns Pa .conf .
+.Cm init
+writes the default guest as such a file.
+.Sh FILES
+.Bl -tag -width ".fuguvm/vms/<name>.conf" -compact
+.It Pa ~/.fuguvmrc
+The global configuration.
+.It Pa .fuguvmrc
+The project configuration, at the project root.
+.It Pa .fuguvm/vms/<name>.conf
+A guest declaration outside the two configuration files.
+.El
+.Sh EXAMPLES
+Declare an amd64 guest and a fleet of two guests with automatic ports
+in
+.Pa .fuguvmrc :
+.Bd -literal -offset indent
+vm "openbsd-amd64" {
+	arch      amd64
+	disk_size 16G
+}
+vm "scenario-1" {
+	ssh_port     auto
+	console_port auto
+}
+vm "scenario-2" {
+	ssh_port     auto
+	console_port auto
+}
+
+$ fuguvm --vm openbsd-amd64 up
+$ fuguvm --vm scenario-1 up
+$ fuguvm --vm scenario-1 status ssh_port
+2222
+.Ed
+.Sh SEE ALSO
+.Xr fuguvm 1 ,
+.Xr qemu-img 1 ,
+.Xr fuguvm 7 ,
+.Xr autoinstall 8

@@ -18,5 +18,5 @@ make check       # run every gate; run it before each commit
 make test        # run every test tier
 make format-fix  # fix the Perl, Markdown, JSON and YAML formatting
 make dist        # build the release tarball
-make install     # install the binary, the modules, and the manual
+make install     # install the binary, the modules, and the manuals
 ```

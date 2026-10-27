@@ -72,7 +72,7 @@ calls no syscall, so a test proves every branch on any host.
 
 =head1 SEE ALSO
 
-L<App::FuguVM::Config>, L<App::FuguVM::Guest>, L<fuguvm(1)>
+L<App::FuguVM::Config>, L<App::FuguVM::Guest>, L<fuguvm(1)>, L<fuguvm(7)>
 
 =head1 AUTHOR
 

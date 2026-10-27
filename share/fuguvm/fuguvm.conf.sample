@@ -21,7 +21,7 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 
 # Optional: reuse the cached installed images. Then fuguvm does not
 # reinstall OpenBSD on every fresh disk. The default is yes. See
-# fuguvm(1).
+# fuguvmrc(5).
 # image_cache yes
 
 # Optional: the default VM name when you do not specify one
@@ -29,22 +29,22 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 
 # Optional: pin the version of the QEMU system binary. With the
 # directive, 'fuguvm up' and 'fuguvm start' refuse an other version
-# with exit code 3. Without it, fuguvm checks nothing. See fuguvm(1).
+# with exit code 3. Without it, fuguvm checks nothing. See fuguvmrc(5).
 # qemu_version 9.0
 
 # Optional: verify each mirror download under the OpenBSD release
-# key with signify(1). The default is yes. See fuguvm(1).
+# key with signify(1). The default is yes. See fuguvmrc(5).
 # verify yes
 
 # Optional: the directory of the signify public keys. Without the
 # directive, fuguvm reads /etc/signify/ and then the shipped
-# share/fuguvm/signify/ tree. See fuguvm(1).
+# share/fuguvm/signify/ tree. See fuguvmrc(5).
 # signify_dir ~/keys
 
 # Optional: cache OpenBSD distfiles in the mirror proxy, under this
 # size cap. The value is a byte count, or a number with a K, M or G
 # suffix (1024-based). The default is 0, which turns the distfile
-# cache off. See fuguvm(1).
+# cache off. See fuguvmrc(5).
 # distfile_cache 4G
 
 # VM definitions
@@ -67,7 +67,7 @@ ssh_pubkey ssh-ed25519 AAAA... user@host
 #
 #     # Optional: install from an autoinstall(8) response file, or
 #     # overlay an existing image instead of an installation. The two
-#     # directives contradict each other. See fuguvm(1).
+#     # directives contradict each other. See fuguvm(7).
 #     # autoinstall  install.conf
 #     # base_disk    ~/images/openbsd-78-amd64.qcow2
 #

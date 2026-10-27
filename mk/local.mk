@@ -20,19 +20,27 @@ PERL_SRC_DIRS	= lib bin scripts
 TEST_GLOBS	= t/fuguvm/*.t t/scripts/*.t t/ci/*.t
 
 MAN1		= man/fuguvm/fuguvm.1
-CATMAN1		= man/fuguvm/fuguvm.cat1
+MAN5		= man/fuguvm/fuguvmrc.5
+MAN7		= man/fuguvm/fuguvm.7
+CATMAN		= $(MAN1:.1=.cat1) $(MAN5:.5=.cat5) $(MAN7:.7=.cat7)
 
-man: $(CATMAN1)
+man: $(CATMAN)
 
-$(CATMAN1): $(MAN1)
-	$(MANDOC) -Tascii $(MAN1) > $(CATMAN1)
+%.cat1: %.1
+	$(MANDOC) -Tascii $< > $@
+
+%.cat5: %.5
+	$(MANDOC) -Tascii $< > $@
+
+%.cat7: %.7
+	$(MANDOC) -Tascii $< > $@
 
 clean: clean-man
 	rm -rf build
 	rm -f *.tmp
 
 clean-man:
-	rm -f $(CATMAN1)
+	rm -f $(CATMAN)
 
 install: install-man
 	# Install the binary
@@ -57,7 +65,11 @@ install: install-man
 install-man:
 	# Install man pages
 	install -d $(DESTDIR)$(MANDIR)/man1
+	install -d $(DESTDIR)$(MANDIR)/man5
+	install -d $(DESTDIR)$(MANDIR)/man7
 	install -m 644 $(MAN1) $(DESTDIR)$(MANDIR)/man1/
+	install -m 644 $(MAN5) $(DESTDIR)$(MANDIR)/man5/
+	install -m 644 $(MAN7) $(DESTDIR)$(MANDIR)/man7/
 
 uninstall:
 	# Remove the binary
@@ -73,5 +85,7 @@ uninstall:
 	-rmdir $(DESTDIR)$(LIBDIR)/App 2>/dev/null
 	# Remove man pages
 	rm -f $(DESTDIR)$(MANDIR)/man1/fuguvm.1
+	rm -f $(DESTDIR)$(MANDIR)/man5/fuguvmrc.5
+	rm -f $(DESTDIR)$(MANDIR)/man7/fuguvm.7
 
 .PHONY: man clean clean-man install install-man uninstall

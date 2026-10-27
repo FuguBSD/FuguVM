@@ -30,7 +30,7 @@ page "404.html" {
 }
 
 manuals commands {
-	heading = Commands
+	heading = Commands and files
 	dir     = man/fuguvm
 }
 

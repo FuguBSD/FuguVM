@@ -65,4 +65,8 @@ troubleshooting. A project defines its VMs in a `.fuguvmrc` at its root.
 
 - `fuguvm(1)` — full command, option, and exit-code reference:
   `mandoc man/fuguvm/fuguvm.1 | less`
+- `fuguvmrc(5)` — the `.fuguvmrc` settings and the guest declarations:
+  `mandoc man/fuguvm/fuguvmrc.5 | less`
+- `fuguvm(7)` — the install modes, the architectures, the ports, the image
+  cache, and the mirror cache: `mandoc man/fuguvm/fuguvm.7 | less`
 - `bin/fuguvm help` — quick usage

@@ -130,7 +130,8 @@ truncated digest, not the content.
 =head1 SEE ALSO
 
 L<Fugu::Pidfile>, L<Fugu::Process>, L<Fugu::StateFile>,
-L<App::FuguVM::Guest>, L<App::FuguVM::Proxy>, L<fuguvm(1)>
+L<App::FuguVM::Guest>, L<App::FuguVM::Proxy>, L<fuguvm(1)>,
+L<fuguvm(7)>
 
 =head1 AUTHOR
 

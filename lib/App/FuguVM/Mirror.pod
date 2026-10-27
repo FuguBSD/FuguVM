@@ -237,7 +237,7 @@ C<signify-openbsd> on Linux and C<signify-osx> on Darwin.
 =head1 SEE ALSO
 
 L<Fugu::Curl>, L<Fugu::Signify>, L<App::FuguVM::Proxy>,
-L<App::FuguVM::Miniroot>, L<fuguvm(1)>
+L<App::FuguVM::Miniroot>, L<fuguvm(1)>, L<fuguvm(7)>
 
 =head1 AUTHOR
 

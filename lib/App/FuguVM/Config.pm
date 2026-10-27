@@ -126,7 +126,7 @@ sub load_vm ( $self, $name )
 
 	# Then look for a file of its own under vms/. This is not a
 	# fallback: 'fuguvm init' writes vms/default.conf, and
-	# fuguvm(1) documents the directory. A vm block in the
+	# fuguvmrc(5) documents the directory. A vm block in the
 	# project or global config wins over it.
 	if ( !defined $vm ) {
 		my $vm_file = "$self->{data_dir}/vms/$name.conf";
